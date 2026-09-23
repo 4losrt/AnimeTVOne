@@ -1,14 +1,13 @@
 package com.one.animetvone.ui.navigation
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.spring
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,6 +21,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicText
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.FormatListBulleted
 import androidx.compose.material.icons.rounded.CalendarToday
@@ -40,18 +40,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.tv.material3.ClickableSurfaceDefaults
-import androidx.tv.material3.Border
-import androidx.tv.material3.Icon
-import androidx.tv.material3.MaterialTheme
-import androidx.tv.material3.Surface
-import androidx.tv.material3.Text
 import com.one.animetvone.ui.theme.AnimetvoneTheme
 import com.one.animetvone.ui.theme.TvAccentCyan
 import com.one.animetvone.ui.theme.TvBackgroundTop
@@ -81,10 +78,10 @@ fun SideNavigationRail(
     var isSidebarFocused by remember { mutableStateOf(false) }
 
     val sidebarWidth by animateDpAsState(
-        targetValue = if (isSidebarFocused) 210.dp else 64.dp,
+        targetValue = if (isSidebarFocused) 248.dp else 72.dp,
         animationSpec = spring(
-            dampingRatio = Spring.DampingRatioLowBouncy,
-            stiffness = Spring.StiffnessMediumLow
+            dampingRatio = Spring.DampingRatioNoBouncy,
+            stiffness = Spring.StiffnessMedium
         ),
         label = "SideNavigationRailWidthAnimation"
     )
@@ -122,24 +119,24 @@ fun SideNavigationRail(
                         .background(TvAccentCyan, RoundedCornerShape(10.dp)),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(
-                        imageVector = Icons.Rounded.Tv,
+                    Image(
+                        painter = rememberVectorPainter(Icons.Rounded.Tv),
                         contentDescription = "ANIME TV Logo",
-                        tint = TvBackgroundTop,
+                        colorFilter = ColorFilter.tint(TvBackgroundTop),
                         modifier = Modifier.size(22.dp)
                     )
                 }
 
                 if (isSidebarFocused) {
                     Spacer(modifier = Modifier.width(12.dp))
-                    Text(
+                    BasicText(
                         text = "ANIME TV",
-                        style = MaterialTheme.typography.titleMedium.copy(
+                        style = TextStyle(
                             fontWeight = FontWeight.Black,
                             letterSpacing = 2.sp,
-                            fontSize = 18.sp
+                            fontSize = 18.sp,
+                            color = TvPureWhite
                         ),
-                        color = TvPureWhite,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -156,78 +153,79 @@ fun SideNavigationRail(
                 NavTab.entries.forEach { navItem ->
                     val isSelected = selectedTab == navItem
                     var isItemFocused by remember { mutableStateOf(false) }
+                    val interactionSource = remember { MutableInteractionSource() }
+                    val itemShape = RoundedCornerShape(12.dp)
+                    val isHighlighted = isSelected || isItemFocused
+                    val itemBackground = when {
+                        isItemFocused -> TvAccentCyan.copy(alpha = if (isSelected) 0.34f else 0.22f)
+                        isSelected -> TvCardFocusHighlight
+                        else -> Color.Transparent
+                    }
+                    val itemBorder = when {
+                        isItemFocused -> TvAccentCyan
+                        isSelected -> TvAccentCyan.copy(alpha = 0.68f)
+                        else -> Color.Transparent
+                    }
 
-                    Surface(
-                        onClick = { onTabSelected(navItem) },
+                    Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(48.dp)
+                            .height(56.dp)
                             .padding(horizontal = 8.dp)
+                            .clip(itemShape)
+                            .background(itemBackground)
+                            .border(
+                                width = if (isItemFocused) 2.dp else 1.dp,
+                                color = itemBorder,
+                                shape = itemShape
+                            )
                             .onFocusChanged {
                                 isItemFocused = it.isFocused
-                            },
-                        shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(10.dp)),
-                        colors = ClickableSurfaceDefaults.colors(
-                            containerColor = if (isSelected) TvCardFocusHighlight else Color.Transparent,
-                            focusedContainerColor = if (isSelected) TvCardFocusHighlight
-                                else TvPureWhite.copy(alpha = 0.08f),
-                            pressedContainerColor = TvCardFocusHighlight
-                        ),
-                        border = ClickableSurfaceDefaults.border(
-                            focusedBorder = Border(
-                                border = BorderStroke(
-                                    1.5.dp,
-                                    if (isSelected) TvAccentCyan else TvPureWhite.copy(alpha = 0.5f)
-                                ),
-                                shape = RoundedCornerShape(10.dp)
-                            )
-                        ),
-                        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.05f)
+                            }
+                            .clickable(
+                                interactionSource = interactionSource,
+                                indication = null,
+                                onClick = { onTabSelected(navItem) }
+                            ),
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier.fillMaxSize()
                         ) {
-                            // Active Cyan Indicator Bar: selected tab ONLY.
-                            // Focus alone shows border + brighter icon (see below),
-                            // so focused and selected never look like two active tabs.
                             Box(
                                 modifier = Modifier
-                                    .width(4.dp)
-                                    .fillMaxHeight(0.65f)
+                                    .width(5.dp)
+                                    .fillMaxHeight(0.62f)
                                     .clip(RoundedCornerShape(2.dp))
                                     .background(
-                                        color = if (isSelected) TvAccentCyan else Color.Transparent
+                                        color = if (isHighlighted) TvAccentCyan else Color.Transparent
                                     )
                             )
 
                             Spacer(modifier = Modifier.width(10.dp))
 
                             // Icon
-                            Icon(
-                                imageVector = navItem.icon,
+                            Image(
+                                painter = rememberVectorPainter(navItem.icon),
                                 contentDescription = navItem.title,
-                                tint = if (isSelected) TvAccentCyan
-                                    else if (isItemFocused) TvPureWhite
-                                    else TvPureWhite.copy(alpha = 0.65f),
-                                modifier = Modifier.size(22.dp)
+                                colorFilter = ColorFilter.tint(
+                                    if (isHighlighted) TvPureWhite
+                                    else TvPureWhite.copy(alpha = 0.65f)
+                                ),
+                                modifier = Modifier.size(24.dp)
                             )
 
-                            // Expanded Title Label
-                            AnimatedVisibility(
-                                visible = isSidebarFocused,
-                                enter = fadeIn(),
-                                exit = fadeOut()
-                            ) {
+                            if (isSidebarFocused) {
                                 Row {
                                     Spacer(modifier = Modifier.width(12.dp))
-                                    Text(
+                                    BasicText(
                                         text = navItem.title,
-                                        style = MaterialTheme.typography.titleMedium.copy(
-                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                            fontSize = 15.sp
+                                        style = TextStyle(
+                                            fontWeight = if (isHighlighted) FontWeight.Bold else FontWeight.Medium,
+                                            fontSize = 17.sp,
+                                            color = if (isHighlighted) TvPureWhite
+                                                else TvPureWhite.copy(alpha = 0.86f)
                                         ),
-                                        color = if (isSelected) TvPureWhite else TvPureWhite.copy(alpha = 0.7f),
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
