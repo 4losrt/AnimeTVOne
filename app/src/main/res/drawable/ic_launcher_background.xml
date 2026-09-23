@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Deep Midnight Dark Navy Background -->
+    <path
+        android:fillColor="#080C16"
+        android:pathData="M0,0h108v108h-108z" />
+    <!-- Ambient Cyan Glow Outer Circle -->
+    <path
+        android:fillColor="#092742"
+        android:pathData="M54,18A36,36 0 1,0 54,90A36,36 0 1,0 54,18Z" />
+    <path
+        android:fillColor="#0077B6"
+        android:pathData="M54,28A26,26 0 1,0 54,80A26,26 0 1,0 54,28Z" />
+</vector>

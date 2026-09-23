@@ -1,0 +1,12 @@
+<resources>
+
+    <!-- Splash / system window theme for the TV app. The actual UI is driven by Compose (AnimetvoneTheme). -->
+    <style name="Theme.Animetvone" parent="Theme.Material3.DayNight.NoActionBar">
+        <!-- TV-friendly solid dark background so there is no flash before Compose draws -->
+        <item name="android:windowBackground">@color/tv_background_solid</item>
+        <item name="android:colorBackground">@color/tv_background_solid</item>
+        <item name="colorSurface">@color/tv_background_solid</item>
+        <item name="android:statusBarColor">@color/tv_background_solid</item>
+        <item name="android:navigationBarColor">@color/tv_background_solid</item>
+    </style>
+</resources>
