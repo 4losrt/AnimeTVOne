@@ -1,6 +1,8 @@
 # AnimeTVOne
 
-AnimeTVOne is an anime browsing and playback app for Fire TV and Android TV, built with Jetpack Compose and remote-control-first navigation.
+AnimeTVOne is an independent, third-party anime browsing and playback app for Fire TV and Android TV, built with Jetpack Compose and remote-control-first navigation.
+
+> **Unofficial client:** This project is not affiliated with, endorsed by, or operated by Anime1.me. Anime1.me is a third-party service and retains ownership of its own content, names, and trademarks.
 
 ## Features
 
