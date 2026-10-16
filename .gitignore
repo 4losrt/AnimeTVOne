@@ -23,3 +23,6 @@ app/anime_list_cache.json
 # Images: keep app artwork, ignore everything else
 *.png
 !app/src/main/res/drawable*/*.png
+
+# Local build outputs for GitHub releases
+dist/
