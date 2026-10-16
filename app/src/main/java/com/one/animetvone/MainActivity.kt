@@ -1,6 +1,8 @@
 package com.one.animetvone
 
+import android.os.Build
 import android.os.Bundle
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -33,6 +35,13 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Only available on API 27+, so we set it programmatically to support
+        // Fire TV devices running API 25 while keeping the feature when possible.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+            setShowWhenLocked(true)
+            setTurnScreenOn(true)
+        }
+
         CoverImageFetcher.init(applicationContext)
         FavoritesManager.init(applicationContext)
         HistoryManager.init(applicationContext)
