@@ -142,4 +142,66 @@ class ViewModelsTest {
         assertEquals("1_ep_2_token_ep2", nextState.episodeId)
         assertTrue(viewModel.hasPreviousEpisode())
     }
+
+    @Test
+    fun `PlayerViewModel keeps playback speed and resize mode across episodes`() = runTest {
+        val repository = AnimeRepositoryImpl(anime1Service = testService)
+        val viewModel = PlayerViewModel(repository)
+
+        viewModel.loadEpisode("1_ep_1_token_ep1")
+        advanceUntilIdle()
+
+        assertEquals(1.0f, viewModel.uiState.value.playbackSpeed, 0.001f)
+
+        viewModel.setPlaybackSpeed(1.5f)
+        viewModel.setResizeMode(3)
+        assertEquals(1.5f, viewModel.uiState.value.playbackSpeed, 0.001f)
+        assertEquals(3, viewModel.uiState.value.resizeMode)
+
+        viewModel.playNextEpisode()
+        advanceUntilIdle()
+
+        // Speed and aspect ratio are user preferences and must survive an
+        // episode change (they used to reset because they were local state).
+        assertEquals("1_ep_2_token_ep2", viewModel.uiState.value.episodeId)
+        assertEquals(1.5f, viewModel.uiState.value.playbackSpeed, 0.001f)
+        assertEquals(3, viewModel.uiState.value.resizeMode)
+    }
+
+    @Test
+    fun `PlayerViewModel drops stale episodes when switching anime`() = runTest {
+        val repository = AnimeRepositoryImpl(anime1Service = testService)
+        val viewModel = PlayerViewModel(repository)
+
+        viewModel.loadEpisode("1_ep_1_token_ep1")
+        advanceUntilIdle()
+        assertTrue(viewModel.uiState.value.episodes.isNotEmpty())
+
+        // Switching to a different anime must immediately clear the previous
+        // episode list so next/previous cannot operate on stale data.
+        viewModel.loadEpisode("2_ep_1_sometoken")
+        assertTrue(viewModel.uiState.value.episodes.isEmpty())
+        assertFalse(viewModel.hasNextEpisode())
+        advanceUntilIdle()
+    }
+
+    @Test
+    fun `PlayerViewModel toggles the episode list and tracks retries`() = runTest {
+        val repository = AnimeRepositoryImpl(anime1Service = testService)
+        val viewModel = PlayerViewModel(repository)
+
+        viewModel.loadEpisode("1_ep_1_token_ep1")
+        advanceUntilIdle()
+
+        assertFalse(viewModel.uiState.value.isEpisodeListVisible)
+        viewModel.toggleEpisodeList()
+        assertTrue(viewModel.uiState.value.isEpisodeListVisible)
+        viewModel.setEpisodeListVisible(false)
+        assertFalse(viewModel.uiState.value.isEpisodeListVisible)
+
+        assertEquals(0, viewModel.uiState.value.retryCount)
+        viewModel.retryEpisode()
+        assertEquals(1, viewModel.uiState.value.retryCount)
+        advanceUntilIdle()
+    }
 }

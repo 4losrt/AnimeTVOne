@@ -19,6 +19,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -38,6 +41,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -47,8 +51,10 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.onKeyEvent
-import android.view.View
 import androidx.activity.compose.BackHandler
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -72,7 +78,6 @@ import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import androidx.tv.material3.Border
-import androidx.tv.material3.Button
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
@@ -80,6 +85,7 @@ import androidx.tv.material3.OutlinedButton
 import androidx.tv.material3.OutlinedButtonDefaults
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
+import com.one.animetvone.data.model.Episode
 import com.one.animetvone.data.repository.SampleAnimeData
 import com.one.animetvone.data.source.HistoryManager
 import com.one.animetvone.data.source.logD
@@ -105,13 +111,13 @@ fun PlayerScreen(
     modifier: Modifier = Modifier,
     viewModel: PlayerViewModel = viewModel()
 ) {
-    var playbackSpeed by remember { mutableStateOf(1.0f) }
     val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
     val focusRequester = remember { FocusRequester() }
 
-    var resizeMode by remember { mutableStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
+    val playbackSpeed = uiState.playbackSpeed
+    val resizeMode = uiState.resizeMode
 
     // Fast-forward / rewind accumulator used by consecutive ±10s operations.
     // ExoPlayer's currentPosition lags behind seekTo() for a beat, so naive
@@ -148,7 +154,7 @@ fun PlayerScreen(
         viewModel.loadEpisode(episodeId)
     }
 
-    LaunchedEffect(uiState.videoStream?.url, uiState.videoStream?.headers) {
+    LaunchedEffect(uiState.videoStream?.url, uiState.videoStream?.headers, uiState.retryCount) {
         val streamUrl = uiState.videoStream?.url
         val headers = uiState.videoStream?.headers ?: emptyMap()
         if (!streamUrl.isNullOrEmpty()) {
@@ -187,6 +193,9 @@ fun PlayerScreen(
             val mediaSource = mediaSourceFactory.createMediaSource(mediaItem)
 
             exoPlayer.setMediaSource(mediaSource)
+            // Re-apply the user's chosen speed: the ViewModel remembers it across
+            // episode changes, and a fresh media source can otherwise reset it.
+            exoPlayer.setPlaybackSpeed(uiState.playbackSpeed)
             exoPlayer.prepare()
 
             val history = HistoryManager.getHistoryList(context)
@@ -241,12 +250,24 @@ fun PlayerScreen(
         }
     }
 
-    LaunchedEffect(uiState.areControlsVisible) {
-        if (uiState.areControlsVisible) {
+    // Auto-hide controls after 4s, but reset the timer on any user interaction
+    // (button clicks, key presses) so the controls don't vanish mid-navigation.
+    // Never auto-hide while the episode list is open.
+    LaunchedEffect(
+        uiState.areControlsVisible,
+        uiState.controlsInteractionCount,
+        uiState.isEpisodeListVisible
+    ) {
+        if (uiState.areControlsVisible && !uiState.isEpisodeListVisible) {
             delay(4000)
             viewModel.setControlsVisible(false)
         }
     }
+
+    // Use rememberUpdatedState so onDispose always reads the LATEST anime/episode
+    // instead of the stale first-composition values (which are always null).
+    val currentAnime by rememberUpdatedState(uiState.currentAnime)
+    val currentEpisode by rememberUpdatedState(uiState.currentEpisode)
 
     DisposableEffect(exoPlayer) {
         val playerListener = object : Player.Listener {
@@ -268,8 +289,8 @@ fun PlayerScreen(
         exoPlayer.addListener(playerListener)
         onDispose {
             exoPlayer.removeListener(playerListener)
-            val anime = uiState.currentAnime
-            val episode = uiState.currentEpisode
+            val anime = currentAnime
+            val episode = currentEpisode
             val pos = exoPlayer.currentPosition
             val dur = exoPlayer.duration
             if (anime != null && episode != null && pos > 0L) {
@@ -294,25 +315,33 @@ fun PlayerScreen(
 
     // Keep the system bars hidden while playing so the video gets the whole
     // screen on Fire/Android TV; restore them on exit (operator/back).
+    // Uses WindowInsetsControllerCompat so it works on every supported API
+    // (including API 25/28 Fire OS where the legacy flags are deprecated).
     val activityContext = context
     DisposableEffect(activityContext) {
-        val view = (activityContext as? android.app.Activity)?.window?.decorView
-        val prevAttr = view?.systemUiVisibility ?: 0
-        view?.systemUiVisibility = (
-            View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
-                View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or View.SYSTEM_UI_FLAG_LAYOUT_STABLE or
-                View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
-            )
+        val window = (activityContext as? android.app.Activity)?.window
+        val controller = window?.let { WindowCompat.getInsetsController(it, it.decorView) }
+        val previousBehavior = controller?.systemBarsBehavior
+        if (controller != null) {
+            controller.systemBarsBehavior =
+                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            controller.hide(WindowInsetsCompat.Type.systemBars())
+        }
         onDispose {
-            view?.systemUiVisibility = prevAttr
+            controller?.show(WindowInsetsCompat.Type.systemBars())
+            if (controller != null && previousBehavior != null) {
+                controller.systemBarsBehavior = previousBehavior
+            }
         }
     }
 
-    BackHandler(enabled = uiState.areControlsVisible) {
-        viewModel.setControlsVisible(false)
-    }
-    BackHandler(enabled = !uiState.areControlsVisible) {
-        onBackClick()
+    // Back priority: episode list → control overlay → leave the player.
+    BackHandler(enabled = true) {
+        when {
+            uiState.isEpisodeListVisible -> viewModel.setEpisodeListVisible(false)
+            uiState.areControlsVisible -> viewModel.setControlsVisible(false)
+            else -> onBackClick()
+        }
     }
 
     Box(
@@ -412,11 +441,16 @@ fun PlayerScreen(
                             }
                         }
                         KeyEvent.KEYCODE_BACK -> {
-                            if (uiState.areControlsVisible) {
-                                viewModel.setControlsVisible(false)
-                                true
-                            } else {
-                                false
+                            when {
+                                uiState.isEpisodeListVisible -> {
+                                    viewModel.setEpisodeListVisible(false)
+                                    true
+                                }
+                                uiState.areControlsVisible -> {
+                                    viewModel.setControlsVisible(false)
+                                    true
+                                }
+                                else -> false
                             }
                         }
                         else -> {
@@ -470,7 +504,8 @@ fun PlayerScreen(
         }
 
         AnimatedVisibility(
-            visible = uiState.areControlsVisible && !uiState.isLoading && uiState.errorMessage == null,
+            visible = uiState.areControlsVisible && !uiState.isLoading &&
+                uiState.errorMessage == null && !uiState.isEpisodeListVisible,
             enter = fadeIn(),
             exit = fadeOut(),
             modifier = Modifier.fillMaxSize()
@@ -480,11 +515,12 @@ fun PlayerScreen(
                 hasNextEpisode = viewModel.hasNextEpisode(),
                 resizeMode = resizeMode,
                 onToggleResizeMode = {
-                    resizeMode = when (resizeMode) {
+                    val newMode = when (resizeMode) {
                         AspectRatioFrameLayout.RESIZE_MODE_FIT -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
                         AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> AspectRatioFrameLayout.RESIZE_MODE_FILL
                         else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
                     }
+                    viewModel.setResizeMode(newMode)
                 },
                 onToggleFavorite = { viewModel.toggleFavorite(context) },
                 onPlayPauseToggle = {
@@ -533,20 +569,46 @@ fun PlayerScreen(
                 onSeek = { seekFraction ->
                     seekAnchorMs = null
                     lastSeekPressMs = 0L
-                    val newPos = (seekFraction * exoPlayer.duration).toLong()
-                    exoPlayer.seekTo(newPos)
-                    viewModel.updatePlaybackPosition(newPos, exoPlayer.duration)
+                    val duration = exoPlayer.duration
+                    // duration is -1/0 until the media is prepared; a seek based
+                    // on it would jump to a nonsense position, so ignore scrubs
+                    // until the player knows the real duration.
+                    if (duration > 0L) {
+                        val newPos = (seekFraction * duration).toLong().coerceIn(0L, duration)
+                        exoPlayer.seekTo(newPos)
+                        viewModel.updatePlaybackPosition(newPos, duration)
+                    }
                 },
                 onBackClick = onBackClick
                 ,playbackSpeed = playbackSpeed,
                 onCyclePlaybackSpeed = {
-                    playbackSpeed = when (playbackSpeed) {
+                    val newSpeed = when (playbackSpeed) {
                         1.0f -> 1.25f
                         1.25f -> 1.5f
                         1.5f -> 2.0f
                         else -> 1.0f
                     }
-                    exoPlayer.setPlaybackSpeed(playbackSpeed)
+                    viewModel.setPlaybackSpeed(newSpeed)
+                    exoPlayer.setPlaybackSpeed(newSpeed)
+                },
+                onInteraction = { viewModel.notifyControlsInteraction() },
+                onToggleEpisodeList = { viewModel.toggleEpisodeList() }
+            )
+        }
+
+        AnimatedVisibility(
+            visible = uiState.isEpisodeListVisible,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier.fillMaxSize()
+        ) {
+            EpisodeListOverlay(
+                episodes = uiState.episodes,
+                currentEpisodeId = uiState.episodeId,
+                onSelect = { ep ->
+                    viewModel.notifyControlsInteraction()
+                    viewModel.setEpisodeListVisible(false)
+                    if (ep.id != uiState.episodeId) viewModel.loadEpisode(ep.id)
                 }
             )
         }
@@ -569,7 +631,9 @@ fun PlayerControlsOverlay(
     onToggleResizeMode: () -> Unit = {},
     onToggleFavorite: () -> Unit = {}
     ,playbackSpeed: Float = 1.0f,
-    onCyclePlaybackSpeed: () -> Unit = {}
+    onCyclePlaybackSpeed: () -> Unit = {},
+    onInteraction: () -> Unit = {},
+    onToggleEpisodeList: () -> Unit = {}
 ) {
     val displayAnimeTitle = remember(uiState.currentAnime?.title) {
         ChineseConverter.toTraditionalChinese(uiState.currentAnime?.title)
@@ -590,6 +654,13 @@ fun PlayerControlsOverlay(
         AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> "比例：鋪滿"
         AspectRatioFrameLayout.RESIZE_MODE_FILL -> "比例：滿版"
         else -> "比例：適合"
+    }
+
+    // Show the real stream quality when the source exposes it, otherwise a
+    // neutral "高清" badge (never a made-up "1080P").
+    val qualityLabel = remember(uiState.videoStream?.quality) {
+        val q = uiState.videoStream?.quality?.trim().orEmpty()
+        if (q.isBlank() || q.equals("auto", ignoreCase = true)) "高清" else q
     }
 
     Box(
@@ -614,7 +685,7 @@ fun PlayerControlsOverlay(
             verticalAlignment = Alignment.CenterVertically
         ) {
             OutlinedButton(
-                onClick = onBackClick,
+                onClick = { onInteraction(); onBackClick() },
                 colors = OutlinedButtonDefaults.colors(
                     contentColor = TvPureWhite,
                     focusedContainerColor = TvCardFocusHighlight,
@@ -662,7 +733,7 @@ fun PlayerControlsOverlay(
                             .padding(horizontal = 6.dp, vertical = 2.dp)
                     ) {
                         Text(
-                            text = "高清 1080P",
+                            text = qualityLabel,
                             style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
                             color = TvAccent
                         )
@@ -684,7 +755,26 @@ fun PlayerControlsOverlay(
 
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedButton(
-                    onClick = onCyclePlaybackSpeed,
+                    onClick = { onInteraction(); onToggleEpisodeList() },
+                    colors = OutlinedButtonDefaults.colors(
+                        contentColor = TvPureWhite,
+                        focusedContainerColor = TvCardFocusHighlight,
+                        focusedContentColor = TvAccent
+                    ),
+                    border = OutlinedButtonDefaults.border(
+                        border = Border(border = BorderStroke(1.dp, TvCardBorder), shape = RoundedCornerShape(8.dp)),
+                        focusedBorder = Border(border = BorderStroke(2.dp, TvAccent), shape = RoundedCornerShape(8.dp))
+                    ),
+                    shape = OutlinedButtonDefaults.shape(shape = RoundedCornerShape(8.dp))
+                ) {
+                    Text(
+                        text = if (uiState.episodes.isNotEmpty()) "選集 (${uiState.episodes.size})" else "選集",
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold)
+                    )
+                }
+
+                OutlinedButton(
+                    onClick = { onInteraction(); onCyclePlaybackSpeed() },
                     colors = OutlinedButtonDefaults.colors(
                         contentColor = TvPureWhite,
                         focusedContainerColor = TvCardFocusHighlight,
@@ -701,7 +791,7 @@ fun PlayerControlsOverlay(
 
                 // Favorite Button in Player Overlay
                 OutlinedButton(
-                    onClick = onToggleFavorite,
+                    onClick = { onInteraction(); onToggleFavorite() },
                     colors = OutlinedButtonDefaults.colors(
                         contentColor = TvPureWhite,
                         focusedContainerColor = TvCardFocusHighlight,
@@ -731,7 +821,7 @@ fun PlayerControlsOverlay(
 
                 // Aspect Ratio Toggle Button
                 OutlinedButton(
-                    onClick = onToggleResizeMode,
+                    onClick = { onInteraction(); onToggleResizeMode() },
                     colors = OutlinedButtonDefaults.colors(
                         contentColor = TvPureWhite,
                         focusedContainerColor = TvCardFocusHighlight,
@@ -765,7 +855,7 @@ fun PlayerControlsOverlay(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Surface(
-                onClick = onRewind10,
+                onClick = { onInteraction(); onRewind10() },
                 modifier = Modifier.size(48.dp),
                 shape = ClickableSurfaceDefaults.shape(shape = CircleShape),
                 colors = ClickableSurfaceDefaults.colors(
@@ -785,7 +875,7 @@ fun PlayerControlsOverlay(
             }
 
             Surface(
-                onClick = onPlayPauseToggle,
+                onClick = { onInteraction(); onPlayPauseToggle() },
                 modifier = Modifier
                     .size(68.dp)
                     .focusRequester(playPauseRequester),
@@ -807,7 +897,7 @@ fun PlayerControlsOverlay(
             }
 
             Surface(
-                onClick = onForward10,
+                onClick = { onInteraction(); onForward10() },
                 modifier = Modifier.size(48.dp),
                 shape = ClickableSurfaceDefaults.shape(shape = CircleShape),
                 colors = ClickableSurfaceDefaults.colors(
@@ -828,7 +918,7 @@ fun PlayerControlsOverlay(
 
             if (hasNextEpisode) {
                 Surface(
-                    onClick = onNextEpisode,
+                    onClick = { onInteraction(); onNextEpisode() },
                     modifier = Modifier.height(48.dp),
                     shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(24.dp)),
                     colors = ClickableSurfaceDefaults.colors(
@@ -907,6 +997,115 @@ fun PlayerControlsOverlay(
                     .fillMaxWidth()
                     .focusProperties { canFocus = false }
             )
+        }
+    }
+}
+
+/**
+ * Full-screen episode picker that opens from the player's "選集" button.
+ * Focus lands on the currently playing episode; the list scrolls to it.
+ */
+@Composable
+fun EpisodeListOverlay(
+    episodes: List<Episode>,
+    currentEpisodeId: String?,
+    onSelect: (Episode) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val listState = rememberLazyListState()
+    val currentIndex = remember(episodes, currentEpisodeId) {
+        episodes.indexOfFirst { it.id == currentEpisodeId }
+    }
+    val currentItemRequester = remember { FocusRequester() }
+
+    LaunchedEffect(episodes.size, currentEpisodeId) {
+        if (currentIndex >= 0) {
+            listState.scrollToItem((currentIndex - 3).coerceAtLeast(0))
+        }
+        // Wait for the target item to be composed, then move focus onto it.
+        delay(80)
+        try {
+            currentItemRequester.requestFocus()
+        } catch (_: Exception) {
+        }
+    }
+
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.92f))
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 80.dp, vertical = 40.dp)
+        ) {
+            Text(
+                text = if (episodes.isEmpty()) "集數載入中…" else "選擇集數（共 ${episodes.size} 集）",
+                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                color = TvPureWhite
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                text = "按返回鍵可關閉",
+                style = MaterialTheme.typography.bodySmall,
+                color = TvPureWhite.copy(alpha = 0.6f)
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+
+            LazyColumn(
+                state = listState,
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxSize()
+            ) {
+                items(episodes, key = { it.id }) { ep ->
+                    val isCurrent = ep.id == currentEpisodeId
+                    Surface(
+                        onClick = { onSelect(ep) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .then(
+                                if (isCurrent) Modifier.focusRequester(currentItemRequester)
+                                else Modifier
+                            ),
+                        shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(10.dp)),
+                        colors = ClickableSurfaceDefaults.colors(
+                            containerColor = if (isCurrent) TvAccent else TvCardBackground,
+                            focusedContainerColor = TvCardFocusHighlight
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "第 ${ep.episodeNumber} 集",
+                                style = MaterialTheme.typography.titleMedium.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 16.sp
+                                ),
+                                color = if (isCurrent) TvBackgroundTop else TvPureWhite
+                            )
+                            Spacer(modifier = Modifier.width(14.dp))
+                            Text(
+                                text = ChineseConverter.toTraditionalChinese(ep.title),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = if (isCurrent) TvBackgroundTop else TvPureWhite.copy(alpha = 0.85f),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            if (isCurrent) {
+                                Spacer(modifier = Modifier.weight(1f))
+                                Text(
+                                    text = "播放中",
+                                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                                    color = TvBackgroundTop
+                                )
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }

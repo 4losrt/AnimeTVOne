@@ -325,7 +325,7 @@ fun DetailContent(
 
                 Spacer(modifier = Modifier.height(10.dp))
 
-                // Metadata Badges (高清 1080P, 全集)
+                // Metadata Badges (高清, 全集)
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically
@@ -336,7 +336,7 @@ fun DetailContent(
                             .padding(horizontal = 7.dp, vertical = 3.dp)
                     ) {
                         Text(
-                            text = "高清 1080P",
+                            text = "高清",
                             style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
                             color = TvAccent
                         )

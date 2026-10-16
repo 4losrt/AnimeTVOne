@@ -305,7 +305,7 @@ fun HeroBillboardBanner(
                     }
                     MetaText(episodeCountLabel(anime))
                     MetaDot()
-                    MetaText("高清 1080P")
+                    MetaText("高清")
                 }
 
                 Spacer(modifier = Modifier.height(10.dp))

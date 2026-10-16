@@ -30,7 +30,12 @@ data class PlayerUiState(
     val duration: Long = 0L,
     val isLoading: Boolean = false,
     val errorMessage: String? = null,
-    val isFavorite: Boolean = false
+    val isFavorite: Boolean = false,
+    val playbackSpeed: Float = 1.0f,
+    val resizeMode: Int = 0, // AspectRatioFrameLayout.RESIZE_MODE_FIT
+    val retryCount: Int = 0,
+    val controlsInteractionCount: Int = 0,
+    val isEpisodeListVisible: Boolean = false
 )
 
 class PlayerViewModel(
@@ -66,6 +71,7 @@ class PlayerViewModel(
         // otherwise drop stale title/number inherited from the last episode
         // (otherwise the header shows the previous episode while the new one
         //  loads).
+        val isNewAnime = _uiState.value.currentAnime?.id != animeId
         _uiState.update { state ->
             val keep = state.currentEpisode?.takeIf { it.id == episodeId }
             state.copy(
@@ -73,7 +79,7 @@ class PlayerViewModel(
                 isLoading = true,
                 errorMessage = null,
                 playbackPosition = 0L,
-                currentAnime = if (state.episodeId != episodeId) null else state.currentAnime,
+                currentAnime = if (isNewAnime) null else state.currentAnime,
                 currentEpisode = keep ?: Episode(
                     id = episodeId,
                     animeId = animeId,
@@ -82,7 +88,8 @@ class PlayerViewModel(
                     thumbnailUrl = "",
                     duration = "24:00",
                     streamUrl = ""
-                )
+                ),
+                episodes = if (isNewAnime) emptyList() else state.episodes
             )
         }
 
@@ -217,7 +224,28 @@ class PlayerViewModel(
     fun retryEpisode() {
         val id = _uiState.value.episodeId ?: return
         repository.evictVideoStream(id)
+        _uiState.update { it.copy(retryCount = it.retryCount + 1) }
         loadEpisode(id)
+    }
+
+    fun setPlaybackSpeed(speed: Float) {
+        _uiState.update { it.copy(playbackSpeed = speed) }
+    }
+
+    fun setResizeMode(mode: Int) {
+        _uiState.update { it.copy(resizeMode = mode) }
+    }
+
+    fun notifyControlsInteraction() {
+        _uiState.update { it.copy(controlsInteractionCount = it.controlsInteractionCount + 1) }
+    }
+
+    fun setEpisodeListVisible(visible: Boolean) {
+        _uiState.update { it.copy(isEpisodeListVisible = visible) }
+    }
+
+    fun toggleEpisodeList() {
+        _uiState.update { it.copy(isEpisodeListVisible = !it.isEpisodeListVisible) }
     }
 
     fun setPlaybackError(message: String?) {
