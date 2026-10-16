@@ -13,7 +13,6 @@ interface AnimeRepository {
     fun getSchedule(): Flow<List<ScheduleDay>>
     fun getAllAnimeList(): Flow<List<Anime>>
     fun getFavoriteAnimeList(favoriteIds: Set<String>): Flow<List<Anime>>
-    fun searchAnime(query: String, category: String? = null): Flow<List<Anime>>
     fun getAnimeDetails(animeId: String): Flow<Anime?>
     fun getEpisodes(animeId: String): Flow<List<Episode>>
     fun getVideoStream(episodeId: String): Flow<VideoStream?>

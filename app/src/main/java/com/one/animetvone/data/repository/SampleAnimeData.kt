@@ -1,25 +1,10 @@
 package com.one.animetvone.data.repository
 
 import com.one.animetvone.data.model.Anime
-import com.one.animetvone.data.model.Anime1Item
 import com.one.animetvone.data.model.AnimeFeedSection
 import com.one.animetvone.data.model.Episode
-import com.one.animetvone.data.model.VideoStream
 
 object SampleAnimeData {
-
-    val sampleAnime1Items = listOf(
-        Anime1Item(1, "葬送的芙莉蓮", "28話", "2023年秋", "SweetSub", "TV"),
-        Anime1Item(2, "鬼滅之刃 柱訓練篇", "8話", "2024年春", "櫻都", "TV"),
-        Anime1Item(3, "咒術迴戰 第二季", "23話", "2023年夏", "喵萌", "TV"),
-        Anime1Item(4, "無職轉生～到了異世界就拿出真本事～", "24話", "2023年夏", "動漫國", "TV"),
-        Anime1Item(5, "間諜家家酒", "25話", "2022年春", "極影", "TV"),
-        Anime1Item(6, "我推的孩子", "11話", "2023年春", "動漫國", "TV"),
-        Anime1Item(7, "轉生史萊姆 第三季", "24話", "2024年春", "櫻都", "TV"),
-        Anime1Item(8, "怪獸8號", "12話", "2024年春", "極影", "TV"),
-        Anime1Item(9, "排球少年", "25話", "2020年秋", "動漫國", "TV"),
-        Anime1Item(10, "鏈鋸人", "12話", "2022年秋", "極影", "TV")
-    )
 
     val sampleAnimes = listOf(
         Anime(
@@ -28,7 +13,7 @@ object SampleAnimeData {
             coverUrl = "https://lain.bgm.tv/r/400/pic/cover/l/7f/81/413803_J7m4Z.jpg",
             bannerUrl = "https://lain.bgm.tv/r/400/pic/cover/l/7f/81/413803_J7m4Z.jpg",
             description = "長生不老的精靈魔法使在勇者一行人討伐魔王後，展開探索生命、友情與時光意義的溫馨冒險。",
-            rating = 9.5,
+            rating = 0.0,
             genres = listOf("冒險", "奇幻", "日常", "2023年秋"),
             year = 2023,
             status = "已完結",
@@ -40,7 +25,7 @@ object SampleAnimeData {
             coverUrl = "https://lain.bgm.tv/r/400/pic/cover/l/d0/22/276591_O2vWw.jpg",
             bannerUrl = "https://lain.bgm.tv/r/400/pic/cover/l/d0/22/276591_O2vWw.jpg",
             description = "少年劍士為了對抗鬼舞辻無慘與鬼殺隊柱們展開嚴酷的特訓，準備迎接決戰。",
-            rating = 9.0,
+            rating = 0.0,
             genres = listOf("熱血", "動作", "奇幻", "2024年春"),
             year = 2024,
             status = "已完結",
@@ -52,7 +37,7 @@ object SampleAnimeData {
             coverUrl = "https://lain.bgm.tv/r/400/pic/cover/l/8e/ec/295325_Y4vT3.jpg",
             bannerUrl = "https://lain.bgm.tv/r/400/pic/cover/l/8e/ec/295325_Y4vT3.jpg",
             description = "揭開五條悟與夏油傑的懷玉・玉折高專時期故事，以及震撼咒術界與澀谷事變的決戰。",
-            rating = 9.2,
+            rating = 0.0,
             genres = listOf("熱血", "動作", "超自然", "2023年夏"),
             year = 2023,
             status = "已完結",
@@ -64,7 +49,7 @@ object SampleAnimeData {
             coverUrl = "https://lain.bgm.tv/r/400/pic/cover/l/ca/27/292671_YFmFf.jpg",
             bannerUrl = "https://lain.bgm.tv/r/400/pic/cover/l/ca/27/292671_YFmFf.jpg",
             description = "34歲尼特族在轉生到劍與魔法的異世界後，決定以魯迪烏斯的名義認真度過新的人生。",
-            rating = 9.1,
+            rating = 0.0,
             genres = listOf("冒險", "奇幻", "異世界", "2023年夏"),
             year = 2023,
             status = "已完結",
@@ -76,7 +61,7 @@ object SampleAnimeData {
             coverUrl = "https://lain.bgm.tv/r/400/pic/cover/l/bf/3e/355343_8A84c.jpg",
             bannerUrl = "https://lain.bgm.tv/r/400/pic/cover/l/bf/3e/355343_8A84c.jpg",
             description = "頂尖間諜為了執行機密任務組建臨時家庭，養女擁有讀心超能力，妻子竟是頂級殺手。",
-            rating = 8.8,
+            rating = 0.0,
             genres = listOf("喜劇", "動作", "日常", "2022年春"),
             year = 2022,
             status = "已完結",
@@ -88,7 +73,7 @@ object SampleAnimeData {
             coverUrl = "https://lain.bgm.tv/r/400/pic/cover/l/1d/1b/388053_8jZzU.jpg",
             bannerUrl = "https://lain.bgm.tv/r/400/pic/cover/l/1d/1b/388053_8jZzU.jpg",
             description = "演藝圈背後的秘密與謊言，轉生為傳奇偶像星野愛的孩子，揭開娛樂圈真實的面貌。",
-            rating = 9.3,
+            rating = 0.0,
             genres = listOf("劇情", "懸疑", "偶像", "2023年春"),
             year = 2023,
             status = "已完結",
@@ -100,7 +85,7 @@ object SampleAnimeData {
             coverUrl = "https://lain.bgm.tv/r/400/pic/cover/l/fb/20/240360_oF9Yd.jpg",
             bannerUrl = "https://lain.bgm.tv/r/400/pic/cover/l/fb/20/240360_oF9Yd.jpg",
             description = "利姆路建立的魔國聯邦持續發展，面對神聖法皇國與開國祭的挑戰。",
-            rating = 8.9,
+            rating = 0.0,
             genres = listOf("冒險", "奇幻", "異世界", "2024年春"),
             year = 2024,
             status = "連載中",
@@ -112,7 +97,7 @@ object SampleAnimeData {
             coverUrl = "https://lain.bgm.tv/r/400/pic/cover/l/b8/91/394747_A4aO6.jpg",
             bannerUrl = "https://lain.bgm.tv/r/400/pic/cover/l/b8/91/394747_A4aO6.jpg",
             description = "在怪獸頻繁出現的日本，負責清理怪獸屍體的日比野卡夫卡意外獲得化身怪獸的能力。",
-            rating = 8.7,
+            rating = 0.0,
             genres = listOf("熱血", "動作", "科幻", "2024年春"),
             year = 2024,
             status = "已完結",
@@ -124,7 +109,7 @@ object SampleAnimeData {
             coverUrl = "https://lain.bgm.tv/r/400/pic/cover/l/08/9d/86435_lZp2k.jpg",
             bannerUrl = "https://lain.bgm.tv/r/400/pic/cover/l/08/9d/86435_lZp2k.jpg",
             description = "日向翔陽與影山飛雄在烏野高中排球部相遇，為了挺進全國大賽而並肩作戰。",
-            rating = 9.4,
+            rating = 0.0,
             genres = listOf("熱血", "運動", "校園", "2020年秋"),
             year = 2020,
             status = "已完結",
@@ -136,7 +121,7 @@ object SampleAnimeData {
             coverUrl = "https://lain.bgm.tv/r/400/pic/cover/l/41/39/322883_2XJ9c.jpg",
             bannerUrl = "https://lain.bgm.tv/r/400/pic/cover/l/41/39/322883_2XJ9c.jpg",
             description = "少年淀治與鏈鋸惡魔波奇塔簽訂契約，重生成為鏈鋸人並加入公安對魔特異課。",
-            rating = 8.9,
+            rating = 0.0,
             genres = listOf("熱血", "動作", "超自然", "2022年秋"),
             year = 2022,
             status = "已完結",
@@ -212,14 +197,4 @@ object SampleAnimeData {
             animes = listOf(sampleAnimes[4], sampleAnimes[6], sampleAnimes[0], sampleAnimes[2], sampleAnimes[5])
         )
     )
-
-    fun getVideoStreamForEpisode(episodeId: String): VideoStream {
-        val episode = sampleEpisodesMap.values.flatten().find { it.id == episodeId }
-        val streamUrl = episode?.streamUrl ?: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"
-        return VideoStream(
-            url = streamUrl,
-            quality = "高清 1080P",
-            serverName = "極速分流伺服器"
-        )
-    }
 }

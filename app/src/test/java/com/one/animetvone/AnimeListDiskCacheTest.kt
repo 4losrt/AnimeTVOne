@@ -98,8 +98,8 @@ class AnimeListDiskCacheTest {
 
         val mockService = object : Anime1Service() {
             override suspend fun fetchAnimeList() = listOf(
-                Anime1Item(1, "Cyber Neon: Edge Protocol", "12話", "2024年春", "極影", "TV"),
-                Anime1Item(2, "Shadow Arise", "連載中", "2024年冬", "動漫國", "TV")
+                Anime1Item(1, "Cyber Neon: Edge Protocol", "12話", "2024", "春", "極影"),
+                Anime1Item(2, "Shadow Arise", "連載中", "2024", "冬", "動漫國")
             )
 
             override suspend fun fetchCoverImage(title: String) = "https://example.com/cover.jpg"

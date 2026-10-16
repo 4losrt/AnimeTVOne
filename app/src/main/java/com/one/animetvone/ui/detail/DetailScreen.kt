@@ -27,7 +27,6 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Refresh
-import androidx.compose.material.icons.rounded.Warning
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.runtime.Composable
@@ -72,10 +71,12 @@ import com.one.animetvone.data.model.Episode
 import com.one.animetvone.data.model.HistoryItem
 import com.one.animetvone.data.repository.SampleAnimeData
 import com.one.animetvone.data.source.CoverImageFetcher
-import com.one.animetvone.data.source.HistoryManager
 import com.one.animetvone.ui.components.DarkTitlePosterCard
+import com.one.animetvone.ui.components.TvErrorView
+import com.one.animetvone.ui.components.TvLoadingView
+import com.one.animetvone.ui.components.episodeCountLabel
 import com.one.animetvone.ui.theme.AnimetvoneTheme
-import com.one.animetvone.ui.theme.TvAccentCyan
+import com.one.animetvone.ui.theme.TvAccent
 import com.one.animetvone.ui.theme.TvBackgroundBottom
 import com.one.animetvone.ui.theme.TvBackgroundTop
 import com.one.animetvone.ui.theme.TvCardBackground
@@ -83,7 +84,6 @@ import com.one.animetvone.ui.theme.TvCardBorder
 import com.one.animetvone.ui.theme.TvCardFocusHighlight
 import com.one.animetvone.ui.theme.TvPureWhite
 import com.one.animetvone.util.ChineseConverter
-import java.util.Locale
 
 @Composable
 fun DetailScreen(
@@ -110,60 +110,18 @@ fun DetailScreen(
             )
     ) {
         when {
-            uiState.isLoading -> {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        CircularProgressIndicator(color = TvAccentCyan)
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Text(
-                            text = "載入動畫詳情...",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = TvPureWhite.copy(alpha = 0.7f)
-                        )
-                    }
-                }
-            }
+            uiState.isLoading -> TvLoadingView(message = "載入動畫詳情…")
 
-            uiState.errorMessage != null -> {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(
-                            imageVector = Icons.Rounded.Warning,
-                            contentDescription = "Error",
-                            tint = MaterialTheme.colorScheme.error,
-                            modifier = Modifier.size(48.dp)
-                        )
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Text(
-                            text = uiState.errorMessage ?: "載入失敗",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = TvPureWhite
-                        )
-                        Spacer(modifier = Modifier.height(16.dp))
-                        val retryRequester = remember { FocusRequester() }
-                        LaunchedEffect(Unit) {
-                            try { retryRequester.requestFocus() } catch (_: Exception) { }
-                        }
-                        Button(
-                            onClick = { viewModel.loadAnimeDetails(animeId, context) },
-                            modifier = Modifier.focusRequester(retryRequester)
-                        ) {
-                            Text(text = "重試")
-                        }
-                    }
-                }
-            }
+            uiState.errorMessage != null -> TvErrorView(
+                message = uiState.errorMessage ?: "載入失敗",
+                onRetry = { viewModel.loadAnimeDetails(animeId, context) }
+            )
 
             uiState.anime != null -> {
                 DetailContent(
                     anime = uiState.anime!!,
                     episodes = uiState.episodes,
+                    historyItems = uiState.historyItems,
                     isFavorite = uiState.isFavorite,
                     onToggleFavorite = { viewModel.toggleFavorite(context) },
                     onEpisodeSelect = { ep -> onEpisodeSelect(animeId, ep.id) },
@@ -178,6 +136,7 @@ fun DetailScreen(
 fun DetailContent(
     anime: Anime,
     episodes: List<Episode>,
+    historyItems: List<HistoryItem>,
     isFavorite: Boolean,
     onToggleFavorite: () -> Unit,
     onEpisodeSelect: (Episode) -> Unit,
@@ -185,11 +144,10 @@ fun DetailContent(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val historyList = remember(anime.id) { HistoryManager.getHistoryList(context) }
-    val historyMap = remember(historyList) { historyList.associateBy { it.episodeId } }
+    val historyMap = remember(historyItems) { historyItems.associateBy { it.episodeId } }
 
-    val lastWatchedHistory = remember(historyList, anime.id) {
-        historyList.filter { it.animeId == anime.id }
+    val lastWatchedHistory = remember(historyItems, anime.id) {
+        historyItems.filter { it.animeId == anime.id }
             .maxByOrNull { it.timestamp }
     }
 
@@ -286,7 +244,7 @@ fun DetailContent(
                         shape = RoundedCornerShape(10.dp)
                     ),
                     focusedBorder = Border(
-                        border = BorderStroke(2.dp, TvAccentCyan),
+                        border = BorderStroke(2.dp, TvAccent),
                         shape = RoundedCornerShape(10.dp)
                     )
                 ),
@@ -321,10 +279,14 @@ fun DetailContent(
                     .fillMaxHeight(),
                 horizontalAlignment = Alignment.Start
             ) {
+                // The poster absorbs the leftover vertical space (weight) instead
+                // of forcing a fixed 0.7 aspect ratio. On a 320dpi TV the canvas is
+                // only 540dp tall, so a fixed 457dp poster used to push the
+                // 播放/追番 buttons off-screen.
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .aspectRatio(0.70f)
+                        .weight(1f)
                         .clip(RoundedCornerShape(16.dp))
                         .background(TvCardBackground)
                 ) {
@@ -376,11 +338,11 @@ fun DetailContent(
                         Text(
                             text = "高清 1080P",
                             style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                            color = TvAccentCyan
+                            color = TvAccent
                         )
                     }
 
-                    val epCountText = if (anime.episodeCount > 0) "全 ${anime.episodeCount} 集" else "全集"
+                    val epCountText = episodeCountLabel(anime)
                     Box(
                         modifier = Modifier
                             .background(TvCardBorder, RoundedCornerShape(6.dp))
@@ -410,7 +372,7 @@ fun DetailContent(
                         onClick = { targetEpisode?.let(onEpisodeSelect) },
                         enabled = targetEpisode != null,
                         colors = ButtonDefaults.colors(
-                            containerColor = TvAccentCyan,
+                            containerColor = TvAccent,
                             contentColor = TvBackgroundTop,
                             focusedContainerColor = TvPureWhite,
                             focusedContentColor = TvBackgroundTop
@@ -451,7 +413,7 @@ fun DetailContent(
                                 shape = RoundedCornerShape(10.dp)
                             ),
                             focusedBorder = Border(
-                                border = BorderStroke(2.dp, TvAccentCyan),
+                                border = BorderStroke(2.dp, TvAccent),
                                 shape = RoundedCornerShape(10.dp)
                             )
                         ),
@@ -463,7 +425,7 @@ fun DetailContent(
                             Icon(
                                 imageVector = if (isFavorite) Icons.Rounded.Check else Icons.Rounded.Add,
                                 contentDescription = "Favorite",
-                                tint = if (isFavorite) TvAccentCyan else TvPureWhite,
+                                tint = if (isFavorite) TvAccent else TvPureWhite,
                                 modifier = Modifier.size(20.dp)
                             )
                             Spacer(modifier = Modifier.width(6.dp))
@@ -505,7 +467,7 @@ fun DetailContent(
                         Text(
                             text = "共 ${episodes.size} 集",
                             style = MaterialTheme.typography.bodyMedium,
-                            color = TvAccentCyan
+                            color = TvAccent
                         )
                     }
 
@@ -525,18 +487,18 @@ fun DetailContent(
                             colors = OutlinedButtonDefaults.colors(
                                 contentColor = TvPureWhite,
                                 focusedContainerColor = TvCardFocusHighlight,
-                                focusedContentColor = TvAccentCyan
+                                focusedContentColor = TvAccent
                             ),
                             border = OutlinedButtonDefaults.border(
                                 border = Border(border = BorderStroke(1.dp, TvCardBorder), shape = RoundedCornerShape(8.dp)),
-                                focusedBorder = Border(border = BorderStroke(2.dp, TvAccentCyan), shape = RoundedCornerShape(8.dp))
+                                focusedBorder = Border(border = BorderStroke(2.dp, TvAccent), shape = RoundedCornerShape(8.dp))
                             ),
                             shape = OutlinedButtonDefaults.shape(shape = RoundedCornerShape(8.dp))
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 if (isRefreshingCover) {
                                     CircularProgressIndicator(
-                                        color = TvAccentCyan,
+                                        color = TvAccent,
                                         modifier = Modifier.size(14.dp),
                                         strokeWidth = 2.dp
                                     )
@@ -544,7 +506,7 @@ fun DetailContent(
                                     Text(
                                         text = "抓取中...",
                                         style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-                                        color = TvAccentCyan
+                                        color = TvAccent
                                     )
                                 } else {
                                     Icon(
@@ -571,7 +533,7 @@ fun DetailContent(
                             ),
                             border = OutlinedButtonDefaults.border(
                                 border = Border(border = BorderStroke(1.dp, TvCardBorder), shape = RoundedCornerShape(8.dp)),
-                                focusedBorder = Border(border = BorderStroke(2.dp, TvAccentCyan), shape = RoundedCornerShape(8.dp))
+                                focusedBorder = Border(border = BorderStroke(2.dp, TvAccent), shape = RoundedCornerShape(8.dp))
                             ),
                             shape = OutlinedButtonDefaults.shape(shape = RoundedCornerShape(8.dp))
                         ) {
@@ -579,7 +541,7 @@ fun DetailContent(
                                 Icon(
                                     imageVector = if (isFavorite) Icons.Rounded.Check else Icons.Rounded.Add,
                                     contentDescription = "Favorite",
-                                    tint = if (isFavorite) TvAccentCyan else TvPureWhite,
+                                    tint = if (isFavorite) TvAccent else TvPureWhite,
                                     modifier = Modifier.size(16.dp)
                                 )
                                 Spacer(modifier = Modifier.width(4.dp))
@@ -599,7 +561,7 @@ fun DetailContent(
                             ),
                             border = OutlinedButtonDefaults.border(
                                 border = Border(border = BorderStroke(1.dp, TvCardBorder), shape = RoundedCornerShape(8.dp)),
-                                focusedBorder = Border(border = BorderStroke(2.dp, TvAccentCyan), shape = RoundedCornerShape(8.dp))
+                                focusedBorder = Border(border = BorderStroke(2.dp, TvAccent), shape = RoundedCornerShape(8.dp))
                             ),
                             shape = OutlinedButtonDefaults.shape(shape = RoundedCornerShape(8.dp))
                         ) {
@@ -658,7 +620,7 @@ fun EpisodeCard(
         ),
         border = ClickableSurfaceDefaults.border(
             border = Border(border = BorderStroke(1.dp, TvCardBorder), shape = RoundedCornerShape(12.dp)),
-            focusedBorder = Border(border = BorderStroke(2.dp, TvAccentCyan), shape = RoundedCornerShape(12.dp))
+            focusedBorder = Border(border = BorderStroke(2.dp, TvAccent), shape = RoundedCornerShape(12.dp))
         ),
         shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(12.dp)),
         modifier = modifier.fillMaxWidth()
@@ -701,7 +663,7 @@ fun EpisodeCard(
                     Text(
                         text = "第 ${episode.episodeNumber} 集",
                         style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                        color = TvAccentCyan
+                        color = TvAccent
                     )
                 }
 
@@ -709,7 +671,7 @@ fun EpisodeCard(
                     modifier = Modifier
                         .align(Alignment.Center)
                         .size(32.dp)
-                        .background(TvAccentCyan.copy(alpha = 0.85f), RoundedCornerShape(16.dp)),
+                        .background(TvAccent.copy(alpha = 0.85f), RoundedCornerShape(16.dp)),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
@@ -728,7 +690,7 @@ fun EpisodeCard(
                             .align(Alignment.BottomCenter)
                             .fillMaxWidth()
                             .height(4.dp),
-                        color = TvAccentCyan,
+                        color = TvAccent,
                         trackColor = Color.White.copy(alpha = 0.25f)
                     )
                 }
@@ -761,6 +723,7 @@ fun DetailScreenPreview() {
         DetailContent(
             anime = SampleAnimeData.sampleAnimes.first(),
             episodes = SampleAnimeData.sampleEpisodesMap.values.first(),
+            historyItems = emptyList(),
             isFavorite = false,
             onToggleFavorite = {},
             onEpisodeSelect = {},

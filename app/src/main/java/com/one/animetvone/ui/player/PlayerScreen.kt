@@ -30,8 +30,6 @@ import androidx.compose.material.icons.rounded.Forward10
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Replay10
-import androidx.compose.material.icons.rounded.Warning
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.runtime.Composable
@@ -73,7 +71,6 @@ import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import androidx.tv.material3.Border
 import androidx.tv.material3.Button
-import androidx.tv.material3.ButtonDefaults
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
@@ -84,8 +81,10 @@ import androidx.tv.material3.Text
 import com.one.animetvone.data.repository.SampleAnimeData
 import com.one.animetvone.data.source.HistoryManager
 import com.one.animetvone.data.source.logD
+import com.one.animetvone.ui.components.TvErrorView
+import com.one.animetvone.ui.components.TvLoadingView
 import com.one.animetvone.ui.theme.AnimetvoneTheme
-import com.one.animetvone.ui.theme.TvAccentCyan
+import com.one.animetvone.ui.theme.TvAccent
 import com.one.animetvone.ui.theme.TvBackgroundTop
 import com.one.animetvone.ui.theme.TvCardBackground
 import com.one.animetvone.ui.theme.TvCardBorder
@@ -401,61 +400,22 @@ fun PlayerScreen(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.65f)),
-                contentAlignment = Alignment.Center
+                    .background(Color.Black.copy(alpha = 0.65f))
             ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    CircularProgressIndicator(color = TvAccentCyan)
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text(
-                        text = "影片載入中...",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = TvPureWhite
-                    )
-                }
+                TvLoadingView(message = "影片載入中…")
             }
         }
 
         if (uiState.errorMessage != null) {
-            val retryRequester = remember { FocusRequester() }
-            // 遙控器：錯誤畫面一出現就自動聚焦「重試」，按 OK 即可重試。
-            LaunchedEffect(uiState.errorMessage) {
-                try { retryRequester.requestFocus() } catch (_: Exception) { }
-            }
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.85f)),
-                contentAlignment = Alignment.Center
+                    .background(Color.Black.copy(alpha = 0.85f))
             ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(
-                        imageVector = Icons.Rounded.Warning,
-                        contentDescription = "Error",
-                        tint = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.size(48.dp)
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text(
-                        text = uiState.errorMessage ?: "影片播放失敗",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = TvPureWhite
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Button(
-                        onClick = { viewModel.retryEpisode() },
-                        modifier = Modifier.focusRequester(retryRequester),
-                        colors = ButtonDefaults.colors(
-                            containerColor = TvAccentCyan,
-                            contentColor = TvBackgroundTop,
-                            focusedContainerColor = TvAccentCyan,
-                            focusedContentColor = TvBackgroundTop
-                        ),
-                        scale = ButtonDefaults.scale(focusedScale = 1.06f)
-                    ) {
-                        Text(text = "重試")
-                    }
-                }
+                TvErrorView(
+                    message = uiState.errorMessage ?: "影片播放失敗",
+                    onRetry = { viewModel.retryEpisode() }
+                )
             }
         }
 
@@ -590,7 +550,7 @@ fun PlayerControlsOverlay(
                         shape = RoundedCornerShape(10.dp)
                     ),
                     focusedBorder = Border(
-                        border = BorderStroke(2.dp, TvAccentCyan),
+                        border = BorderStroke(2.dp, TvAccent),
                         shape = RoundedCornerShape(10.dp)
                     )
                 ),
@@ -628,7 +588,7 @@ fun PlayerControlsOverlay(
                         Text(
                             text = "高清 1080P",
                             style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                            color = TvAccentCyan
+                            color = TvAccent
                         )
                     }
                 }
@@ -652,11 +612,11 @@ fun PlayerControlsOverlay(
                     colors = OutlinedButtonDefaults.colors(
                         contentColor = TvPureWhite,
                         focusedContainerColor = TvCardFocusHighlight,
-                        focusedContentColor = TvAccentCyan
+                        focusedContentColor = TvAccent
                     ),
                     border = OutlinedButtonDefaults.border(
                         border = Border(border = BorderStroke(1.dp, TvCardBorder), shape = RoundedCornerShape(8.dp)),
-                        focusedBorder = Border(border = BorderStroke(2.dp, TvAccentCyan), shape = RoundedCornerShape(8.dp))
+                        focusedBorder = Border(border = BorderStroke(2.dp, TvAccent), shape = RoundedCornerShape(8.dp))
                     ),
                     shape = OutlinedButtonDefaults.shape(shape = RoundedCornerShape(8.dp))
                 ) {
@@ -669,11 +629,11 @@ fun PlayerControlsOverlay(
                     colors = OutlinedButtonDefaults.colors(
                         contentColor = TvPureWhite,
                         focusedContainerColor = TvCardFocusHighlight,
-                        focusedContentColor = TvAccentCyan
+                        focusedContentColor = TvAccent
                     ),
                     border = OutlinedButtonDefaults.border(
                         border = Border(border = BorderStroke(1.dp, TvCardBorder), shape = RoundedCornerShape(8.dp)),
-                        focusedBorder = Border(border = BorderStroke(2.dp, TvAccentCyan), shape = RoundedCornerShape(8.dp))
+                        focusedBorder = Border(border = BorderStroke(2.dp, TvAccent), shape = RoundedCornerShape(8.dp))
                     ),
                     shape = OutlinedButtonDefaults.shape(shape = RoundedCornerShape(8.dp))
                 ) {
@@ -681,7 +641,7 @@ fun PlayerControlsOverlay(
                         Icon(
                             imageVector = if (uiState.isFavorite) Icons.Rounded.Check else Icons.Rounded.Add,
                             contentDescription = "Watchlist",
-                            tint = if (uiState.isFavorite) TvAccentCyan else TvPureWhite,
+                            tint = if (uiState.isFavorite) TvAccent else TvPureWhite,
                             modifier = Modifier.size(16.dp)
                         )
                         Spacer(modifier = Modifier.width(4.dp))
@@ -699,11 +659,11 @@ fun PlayerControlsOverlay(
                     colors = OutlinedButtonDefaults.colors(
                         contentColor = TvPureWhite,
                         focusedContainerColor = TvCardFocusHighlight,
-                        focusedContentColor = TvAccentCyan
+                        focusedContentColor = TvAccent
                     ),
                     border = OutlinedButtonDefaults.border(
                         border = Border(border = BorderStroke(1.dp, TvCardBorder), shape = RoundedCornerShape(8.dp)),
-                        focusedBorder = Border(border = BorderStroke(2.dp, TvAccentCyan), shape = RoundedCornerShape(8.dp))
+                        focusedBorder = Border(border = BorderStroke(2.dp, TvAccent), shape = RoundedCornerShape(8.dp))
                     ),
                     shape = OutlinedButtonDefaults.shape(shape = RoundedCornerShape(8.dp))
                 ) {
@@ -734,7 +694,7 @@ fun PlayerControlsOverlay(
                 shape = ClickableSurfaceDefaults.shape(shape = CircleShape),
                 colors = ClickableSurfaceDefaults.colors(
                     containerColor = TvCardBackground,
-                    focusedContainerColor = TvAccentCyan
+                    focusedContainerColor = TvAccent
                 ),
                 scale = ClickableSurfaceDefaults.scale(focusedScale = 1.15f)
             ) {
@@ -755,7 +715,7 @@ fun PlayerControlsOverlay(
                     .focusRequester(playPauseRequester),
                 shape = ClickableSurfaceDefaults.shape(shape = CircleShape),
                 colors = ClickableSurfaceDefaults.colors(
-                    containerColor = TvAccentCyan,
+                    containerColor = TvAccent,
                     focusedContainerColor = TvPureWhite
                 ),
                 scale = ClickableSurfaceDefaults.scale(focusedScale = 1.15f)
@@ -776,7 +736,7 @@ fun PlayerControlsOverlay(
                 shape = ClickableSurfaceDefaults.shape(shape = CircleShape),
                 colors = ClickableSurfaceDefaults.colors(
                     containerColor = TvCardBackground,
-                    focusedContainerColor = TvAccentCyan
+                    focusedContainerColor = TvAccent
                 ),
                 scale = ClickableSurfaceDefaults.scale(focusedScale = 1.15f)
             ) {
@@ -797,7 +757,7 @@ fun PlayerControlsOverlay(
                     shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(24.dp)),
                     colors = ClickableSurfaceDefaults.colors(
                         containerColor = TvCardBackground,
-                        focusedContainerColor = TvAccentCyan
+                        focusedContainerColor = TvAccent
                     ),
                     scale = ClickableSurfaceDefaults.scale(focusedScale = 1.10f)
                 ) {
@@ -861,8 +821,8 @@ fun PlayerControlsOverlay(
                 value = progressFraction,
                 onValueChange = { onSeek(it) },
                 colors = SliderDefaults.colors(
-                    thumbColor = TvAccentCyan,
-                    activeTrackColor = TvAccentCyan,
+                    thumbColor = TvAccent,
+                    activeTrackColor = TvAccent,
                     inactiveTrackColor = TvPureWhite.copy(alpha = 0.25f)
                 ),
                 // 遙控器：進度條不可搶焦點（否則左右鍵被吃掉、按不到按鈕）。

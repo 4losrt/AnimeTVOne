@@ -1,3 +1,4 @@
 <resources>
-    <string name="app_name">animetvone</string>
+    <!-- Shown on the TV launcher / app row. Matches the in-app "ANIME TV" branding. -->
+    <string name="app_name">AnimeTV</string>
 </resources>

@@ -4,7 +4,6 @@ import android.util.Log
 import com.one.animetvone.data.model.Anime1EpisodeToken
 import com.one.animetvone.data.model.Anime1Item
 import com.one.animetvone.data.model.VideoStream
-import com.one.animetvone.data.repository.SampleAnimeData
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -73,8 +72,13 @@ open class Anime1Service(
     }
 
     /**
-     * Fetch animelist.json from primary anime1.me URL or fallback CloudFront URL.
-     * Guaranteed non-empty fallback so the app NEVER shows a blank/stuck screen.
+     * Fetch animelist.json from the primary anime1.me URL, falling back to the
+     * CloudFront mirror. Returns an EMPTY list when both fail (offline).
+     *
+     * It deliberately does NOT substitute demo/sample data here: callers must be
+     * able to tell "real network list" apart from "nothing available", otherwise
+     * sample data would be merged into (and persisted to) the real cache, and the
+     * app would show fake entries for the whole cache TTL.
      */
     open suspend fun fetchAnimeList(): List<Anime1Item> = withContext(Dispatchers.IO) {
         inMemoryAnimeList?.let { return@withContext it }
@@ -89,8 +93,7 @@ open class Anime1Service(
         }
 
         if (list.isEmpty()) {
-            logD("Anime1Service", "Online animelist fetch empty, using robust offline sample dataset.")
-            list = SampleAnimeData.sampleAnime1Items
+            logD("Anime1Service", "Online animelist fetch empty (offline); returning empty list.")
         }
 
         if (list.isNotEmpty()) {
@@ -274,15 +277,15 @@ open class Anime1Service(
      * as oneAnime's AnimeSeason. Percent-encoded paths work fine on this site.
      */
     /**
-     * Fetch the current-season schedule page, e.g.
-     * https://anime1.me/2026年夏季新番
+     * Fetch the season schedule page, e.g. https://anime1.me/2026年夏季新番
      *
-     * NOTE: the site path is 年 + <season> + 季 + 新番 (e.g. 2026年夏季新番).
-     * Omitting the 季 character returns HTTP 404, which previously made the
-     * 每週新番表 screen silently fall back to sample data.
+     * NOTE: the site path is 年 + <season> + 新番 where <season> already includes
+     * the 季 character (冬季/春季/夏季/秋季), e.g. 2026年夏季新番. Appending an
+     * extra 季 produced 2026年夏季季新番 which always 404s, so the weekly schedule
+     * silently fell back to fabricated data.
      */
     open suspend fun fetchSeasonScheduleHtml(year: Int, season: String): String = withContext(Dispatchers.IO) {
-        val rawUrl = "https://anime1.me/${year}年${season}季新番"
+        val rawUrl = "https://anime1.me/${year}年${season}新番"
         logD("Anime1Schedule", "fetch season page: $rawUrl")
         val html = fetchUrlString(rawUrl)
         logD("Anime1Schedule", "season html length=${html.length}")

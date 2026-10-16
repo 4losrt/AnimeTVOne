@@ -11,12 +11,13 @@ class Anime1ParserTest {
 
     @Test
     fun `parseAnimeListJson filters out invalid IDs and parses items correctly`() {
+        // Real anime1.me wire format: [id, title, episodeCountOrStatus, year, season, subtitleGroup]
         val json = """
             [
-                [101, "Cyber Neon: Edge Protocol", "12話", "2024年春", "極影字幕組", "TV"],
+                [101, "Cyber Neon: Edge Protocol", "12話", "2024", "春", "極影字幕組"],
                 [0, "Adult / Invalid Entry", "1話", "", "", ""],
                 [-1, "Negative ID Entry", "0話", "", "", ""],
-                [202, "Shadow Arise", "連載中", "2024年冬", "動漫國", "TV"]
+                [202, "Shadow Arise", "連載中", "2024", "冬", "動漫國"]
             ]
         """.trimIndent()
 
@@ -26,9 +27,9 @@ class Anime1ParserTest {
         assertEquals(101, items[0].id)
         assertEquals("Cyber Neon: Edge Protocol", items[0].title)
         assertEquals("12話", items[0].episodeCountOrStatus)
-        assertEquals("2024年春", items[0].season)
+        assertEquals("2024", items[0].year)
+        assertEquals("春", items[0].season)
         assertEquals("極影字幕組", items[0].subtitleGroup)
-        assertEquals("TV", items[0].category)
 
         assertEquals(202, items[1].id)
         assertEquals("Shadow Arise", items[1].title)
@@ -144,8 +145,8 @@ class Anime1ParserTest {
         """.trimIndent()
 
         val allItems = listOf(
-            Anime1Item(101, "Cyber Neon", "12話", "2024春", "極影", "TV"),
-            Anime1Item(202, "Shadow Arise", "連載", "2024冬", "動漫國", "TV")
+            Anime1Item(101, "Cyber Neon", "12話", "2024", "春", "極影"),
+            Anime1Item(202, "Shadow Arise", "連載", "2024", "冬", "動漫國")
         )
 
         val scheduleMap = Anime1Parser.parseScheduleFromHtml(html, allItems)
@@ -183,16 +184,24 @@ class Anime1ParserTest {
         """.trimIndent()
 
         val allItems = listOf(
-            Anime1Item(301, "Sun Anime", "連載", "2026夏", "字幕組", "TV"),
-            Anime1Item(302, "Mon Anime", "連載", "2026夏", "字幕組", "TV"),
-            Anime1Item(303, "Wed Anime", "連載", "2026夏", "字幕組", "TV")
+            Anime1Item(301, "Sun Anime", "連載", "2026", "夏", "字幕組"),
+            Anime1Item(302, "Mon Anime", "連載", "2026", "夏", "字幕組"),
+            Anime1Item(303, "Wed Anime", "連載", "2026", "夏", "字幕組")
         )
 
         val scheduleMap = Anime1Parser.parseScheduleFromHtml(html, allItems)
 
+        // The header row carries a leading label column, so data cell i aligns to
+        // the (i+1)-th header: cell0 -> 日, cell1 -> 一, cell2 -> 二.
         assertTrue(scheduleMap["星期日"]!!.any { it.id == 301 })
         assertTrue(scheduleMap["星期一"]!!.any { it.id == 302 })
-        assertTrue(scheduleMap["星期三"]!!.any { it.id == 303 })
+        assertTrue(scheduleMap["星期二"]!!.any { it.id == 303 })
+        // Days with no real match must stay empty: the parser never fabricates
+        // entries to fill the week (that used to put 303 into 星期三 via id % 7).
+        assertTrue(scheduleMap["星期三"]!!.isEmpty())
+        assertTrue(scheduleMap["星期四"]!!.isEmpty())
+        assertTrue(scheduleMap["星期五"]!!.isEmpty())
+        assertTrue(scheduleMap["星期六"]!!.isEmpty())
     }
 
     @Test

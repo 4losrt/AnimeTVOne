@@ -37,7 +37,7 @@ import androidx.tv.material3.Text
 import com.one.animetvone.data.source.AnimeListDiskCache
 import com.one.animetvone.data.source.CoverImageFetcher
 import com.one.animetvone.data.source.HistoryManager
-import com.one.animetvone.ui.theme.TvAccentCyan
+import com.one.animetvone.ui.theme.TvAccent
 import com.one.animetvone.ui.theme.TvBackgroundBottom
 import com.one.animetvone.ui.theme.TvBackgroundTop
 import com.one.animetvone.ui.theme.TvCardBorder
@@ -68,11 +68,11 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
         verticalArrangement = Arrangement.spacedBy(18.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Rounded.Settings, "設定", tint = TvAccentCyan)
+            Icon(Icons.Rounded.Settings, "設定", tint = TvAccent)
             Spacer(Modifier.width(14.dp))
             Text("設定", color = TvPureWhite, style = MaterialTheme.typography.headlineMedium)
         }
-        Text("資料與播放紀錄", color = TvAccentCyan, fontSize = 17.sp)
+        Text("資料與播放紀錄", color = TvAccent, fontSize = 17.sp)
         Text("動畫列表最後更新：" + AnimeListDiskCache.lastUpdatedMillis().let {
             if (it > 0) DateFormat.getDateTimeInstance().format(Date(it)) else "尚未更新"
         }, color = TvPureWhite.copy(alpha = .65f), fontSize = 14.sp)
@@ -90,7 +90,7 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
             confirmation = "歷史"
         }
         Spacer(Modifier.height(12.dp))
-        status?.let { Text(it, color = TvAccentCyan, fontSize = 15.sp) }
+        status?.let { Text(it, color = TvAccent, fontSize = 15.sp) }
         Text("AnimeTV  •  Fire TV Edition", color = TvPureWhite.copy(alpha = .45f), fontSize = 14.sp)
     }
     confirmation?.let { target ->
@@ -121,12 +121,12 @@ private fun SettingButton(title: String, subtitle: String, icon: androidx.compos
         colors = ButtonDefaults.colors(
             containerColor = TvBackgroundTop,
             contentColor = TvPureWhite,
-            focusedContainerColor = TvAccentCyan,
+            focusedContainerColor = TvAccent,
             focusedContentColor = TvBackgroundTop
         ),
         border = ButtonDefaults.border(
             border = Border(border = androidx.compose.foundation.BorderStroke(1.dp, TvCardBorder), shape = RoundedCornerShape(12.dp)),
-            focusedBorder = Border(border = androidx.compose.foundation.BorderStroke(2.dp, TvAccentCyan), shape = RoundedCornerShape(12.dp))
+            focusedBorder = Border(border = androidx.compose.foundation.BorderStroke(2.dp, TvAccent), shape = RoundedCornerShape(12.dp))
         ),
         shape = ButtonDefaults.shape(RoundedCornerShape(12.dp))
     ) {

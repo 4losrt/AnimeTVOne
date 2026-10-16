@@ -30,8 +30,8 @@ class AnimeRepositoryTest {
         Dispatchers.setMain(testDispatcher)
         val testService = object : Anime1Service() {
             override suspend fun fetchAnimeList() = listOf(
-                Anime1Item(1, "Cyber Neon: Edge Protocol", "12話", "2024年春", "極影", "TV"),
-                Anime1Item(2, "Shadow Arise", "連載中", "2024年冬", "動漫國", "TV")
+                Anime1Item(1, "Cyber Neon: Edge Protocol", "12話", "2024", "春", "極影"),
+                Anime1Item(2, "Shadow Arise", "連載中", "2024", "冬", "動漫國")
             )
 
             override suspend fun fetchEpisodeTokens(animeId: String) = listOf(
@@ -65,19 +65,13 @@ class AnimeRepositoryTest {
     }
 
     @Test
-    fun `searchAnime with query returns matching results`() = runTest {
-        val results = repository.searchAnime(query = "Cyber", category = null).first()
-        assertTrue(results.isNotEmpty())
-        assertTrue(results.any { it.title.contains("Cyber", ignoreCase = true) })
-    }
-
-    @Test
-    fun `searchAnime with category filter returns matching results`() = runTest {
-        val results = repository.searchAnime(query = "", category = "TV").first()
-        assertTrue(results.isNotEmpty())
-        results.forEach { anime ->
-            assertTrue(anime.genres.contains("TV"))
-        }
+    fun `getAnimeDetails maps the anime1 wire format into year, season genre and episode count`() = runTest {
+        val anime = repository.getAnimeDetails("1").first()
+        assertNotNull(anime)
+        assertEquals(2024, anime?.year)
+        // year + season are combined into a single filterable genre tag
+        assertTrue(anime!!.genres.contains("2024年春"))
+        assertEquals(12, anime.episodeCount)
     }
 
     @Test

@@ -10,8 +10,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.listSaver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.Modifier
 import com.one.animetvone.ui.animelist.AnimeListScreen
 import com.one.animetvone.ui.detail.DetailScreen
@@ -29,12 +31,50 @@ sealed interface Screen {
     data class Player(val animeId: String, val episodeId: String) : Screen
 }
 
+// Unit-separator: cannot appear in anime/episode ids, so it is a safe delimiter.
+private const val SEP = "\u001F"
+
+private fun encodeScreen(screen: Screen): String = when (screen) {
+    is Screen.MainTab -> "tab$SEP${screen.tab.name}"
+    is Screen.Detail -> "detail$SEP${screen.animeId}"
+    is Screen.Player -> "player$SEP${screen.animeId}$SEP${screen.episodeId}"
+}
+
+private fun decodeScreen(value: String): Screen? {
+    val parts = value.split(SEP)
+    return when (parts.firstOrNull()) {
+        "tab" -> parts.getOrNull(1)
+            ?.let { name -> NavTab.entries.firstOrNull { it.name == name } }
+            ?.let { Screen.MainTab(it) }
+        "detail" -> parts.getOrNull(1)?.let { Screen.Detail(it) }
+        "player" -> {
+            val animeId = parts.getOrNull(1)
+            val episodeId = parts.getOrNull(2)
+            if (animeId != null && episodeId != null) Screen.Player(animeId, episodeId) else null
+        }
+        else -> null
+    }
+}
+
+private val backStackSaver = listSaver<SnapshotStateList<Screen>, String>(
+    save = { stack -> stack.map(::encodeScreen) },
+    restore = { encoded ->
+        mutableStateListOf<Screen>().apply {
+            addAll(encoded.mapNotNull(::decodeScreen))
+        }
+    }
+)
+
 @Composable
 fun AppNavigation(
     modifier: Modifier = Modifier
 ) {
-    var selectedTab by remember { mutableStateOf(NavTab.HOME) }
-    val detailOrPlayerBackStack = remember { mutableStateListOf<Screen>() }
+    // Survive Activity recreation / process death: without this a rotation or a
+    // system-initiated restart dropped the user back on the Home tab.
+    var selectedTab by rememberSaveable { mutableStateOf(NavTab.HOME) }
+    val detailOrPlayerBackStack = rememberSaveable(saver = backStackSaver) {
+        mutableStateListOf<Screen>()
+    }
 
     val currentScreen = detailOrPlayerBackStack.lastOrNull() ?: Screen.MainTab(selectedTab)
 

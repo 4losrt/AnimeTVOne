@@ -33,8 +33,6 @@ import androidx.compose.material.icons.automirrored.rounded.NavigateNext
 import androidx.compose.material.icons.rounded.Clear
 import androidx.compose.material.icons.rounded.Movie
 import androidx.compose.material.icons.rounded.Search
-import androidx.compose.material.icons.rounded.Warning
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.runtime.Composable
@@ -45,21 +43,17 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.tv.material3.Border
-import androidx.tv.material3.Button
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.FilterChip
@@ -73,8 +67,11 @@ import androidx.tv.material3.Text
 import com.one.animetvone.data.model.Anime
 import com.one.animetvone.data.repository.SampleAnimeData
 import com.one.animetvone.ui.components.AnimeCard
+import com.one.animetvone.ui.components.TvEmptyView
+import com.one.animetvone.ui.components.TvErrorView
+import com.one.animetvone.ui.components.TvLoadingView
 import com.one.animetvone.ui.theme.AnimetvoneTheme
-import com.one.animetvone.ui.theme.TvAccentCyan
+import com.one.animetvone.ui.theme.TvAccent
 import com.one.animetvone.ui.theme.TvBackgroundBottom
 import com.one.animetvone.ui.theme.TvBackgroundTop
 import com.one.animetvone.ui.theme.TvCardBackground
@@ -156,7 +153,7 @@ fun AnimeListContent(
                     Icon(
                         imageVector = Icons.Rounded.Search,
                         contentDescription = "Search",
-                        tint = if (isSearchFocused) TvAccentCyan else TvPureWhite.copy(alpha = 0.7f),
+                        tint = if (isSearchFocused) TvAccent else TvPureWhite.copy(alpha = 0.7f),
                         modifier = Modifier.size(20.dp)
                     )
                 },
@@ -190,11 +187,11 @@ fun AnimeListContent(
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedContainerColor = TvCardBackground,
                     unfocusedContainerColor = TvCardBackground,
-                    focusedBorderColor = TvAccentCyan,
+                    focusedBorderColor = TvAccent,
                     unfocusedBorderColor = TvCardBorder,
                     focusedTextColor = TvPureWhite,
                     unfocusedTextColor = TvPureWhite,
-                    cursorColor = TvAccentCyan
+                    cursorColor = TvAccent
                 ),
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier
@@ -221,17 +218,17 @@ fun AnimeListContent(
                             colors = FilterChipDefaults.colors(
                                 containerColor = TvCardBackground,
                                 contentColor = TvPureWhite.copy(alpha = 0.7f),
-                                focusedContainerColor = TvAccentCyan,
+                                focusedContainerColor = TvAccent,
                                 focusedContentColor = TvBackgroundTop,
-                                selectedContainerColor = TvAccentCyan,
+                                selectedContainerColor = TvAccent,
                                 selectedContentColor = TvBackgroundTop,
-                                focusedSelectedContainerColor = TvAccentCyan,
+                                focusedSelectedContainerColor = TvAccent,
                                 focusedSelectedContentColor = TvBackgroundTop
                             ),
                             scale = FilterChipDefaults.scale(focusedScale = 1.08f),
                             border = FilterChipDefaults.border(
                                 border = Border(border = BorderStroke(1.dp, TvCardBorder), shape = RoundedCornerShape(12.dp)),
-                                focusedBorder = Border(border = BorderStroke(2.dp, TvAccentCyan), shape = RoundedCornerShape(12.dp))
+                                focusedBorder = Border(border = BorderStroke(2.dp, TvAccent), shape = RoundedCornerShape(12.dp))
                             ),
                             shape = FilterChipDefaults.shape(shape = RoundedCornerShape(12.dp))
                         ) {
@@ -254,80 +251,22 @@ fun AnimeListContent(
             modifier = Modifier.weight(1f)
         ) {
             when {
-                uiState.isLoading -> {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            CircularProgressIndicator(color = TvAccentCyan)
-                            Spacer(modifier = Modifier.height(16.dp))
-                            Text(
-                                text = "載入動畫列表中...",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = TvPureWhite.copy(alpha = 0.7f)
-                            )
-                        }
-                    }
-                }
+                uiState.isLoading -> TvLoadingView(message = "載入動畫列表中…")
 
-                uiState.errorMessage != null -> {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(
-                                imageVector = Icons.Rounded.Warning,
-                                contentDescription = "Error",
-                                tint = MaterialTheme.colorScheme.error,
-                                modifier = Modifier.size(48.dp)
-                            )
-                            Spacer(modifier = Modifier.height(12.dp))
-                            Text(
-                                text = uiState.errorMessage,
-                                style = MaterialTheme.typography.titleMedium,
-                                color = TvPureWhite
-                            )
-                            Spacer(modifier = Modifier.height(16.dp))
-                            val listRetryRequester = remember { FocusRequester() }
-                            LaunchedEffect(Unit) {
-                                try { listRetryRequester.requestFocus() } catch (_: Exception) { }
-                            }
-                            Button(
-                                onClick = onRetry,
-                                modifier = Modifier.focusRequester(listRetryRequester)
-                            ) {
-                                Text(text = "重試")
-                            }
-                        }
-                    }
-                }
+                uiState.errorMessage != null -> TvErrorView(
+                    message = uiState.errorMessage,
+                    onRetry = onRetry
+                )
 
-                uiState.filteredAnimeList.isEmpty() -> {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(top = 40.dp),
-                        contentAlignment = Alignment.TopCenter
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(
-                                imageVector = Icons.Rounded.Movie,
-                                contentDescription = "No Results",
-                                tint = TvOnSurfaceMuted,
-                                modifier = Modifier.size(60.dp)
-                            )
-                            Spacer(modifier = Modifier.height(16.dp))
-                            Text(
-                                text = if (uiState.searchQuery.isNotBlank()) "沒有找到符合「${uiState.searchQuery}」的動畫" else "沒有找到符合的動畫",
-                                style = MaterialTheme.typography.titleMedium,
-                                color = TvPureWhite,
-                                textAlign = TextAlign.Center
-                            )
-                        }
-                    }
-                }
+                uiState.filteredAnimeList.isEmpty() -> TvEmptyView(
+                    icon = Icons.Rounded.Movie,
+                    title = if (uiState.searchQuery.isNotBlank()) {
+                        "沒有找到符合「${uiState.searchQuery}」的動畫"
+                    } else {
+                        "沒有找到符合的動畫"
+                    },
+                    description = "試著調整關鍵字或切換季度分類"
+                )
 
                 else -> {
                     LazyVerticalGrid(
@@ -345,8 +284,7 @@ fun AnimeListContent(
                             AnimeCard(
                                 anime = anime,
                                 onClick = { onAnimeSelect(anime) },
-                                cardWidth = 160.dp,
-                                isTextOnly = true
+                                cardWidth = 160.dp
                             )
                         }
                     }
@@ -367,7 +305,7 @@ fun AnimeListContent(
                     enabled = uiState.currentPage > 1,
                     colors = OutlinedButtonDefaults.colors(
                         contentColor = TvPureWhite,
-                        focusedContainerColor = TvAccentCyan,
+                        focusedContainerColor = TvAccent,
                         focusedContentColor = TvBackgroundTop,
                         disabledContentColor = TvPureWhite.copy(alpha = 0.2f)
                     ),
@@ -377,7 +315,7 @@ fun AnimeListContent(
                             shape = RoundedCornerShape(10.dp)
                         ),
                         focusedBorder = Border(
-                            border = BorderStroke(2.dp, TvAccentCyan),
+                            border = BorderStroke(2.dp, TvAccent),
                             shape = RoundedCornerShape(10.dp)
                         )
                     ),
@@ -420,8 +358,8 @@ fun AnimeListContent(
                                 onClick = { onGoToPage(p) },
                                 shape = ClickableSurfaceDefaults.shape(shape = CircleShape),
                                 colors = ClickableSurfaceDefaults.colors(
-                                    containerColor = if (isCurrent) TvAccentCyan else TvCardBackground,
-                                    focusedContainerColor = TvAccentCyan
+                                    containerColor = if (isCurrent) TvAccent else TvCardBackground,
+                                    focusedContainerColor = TvAccent
                                 ),
                                 modifier = Modifier.size(28.dp)
                             ) {
@@ -451,7 +389,7 @@ fun AnimeListContent(
                     enabled = uiState.currentPage < uiState.totalPages,
                     colors = OutlinedButtonDefaults.colors(
                         contentColor = TvPureWhite,
-                        focusedContainerColor = TvAccentCyan,
+                        focusedContainerColor = TvAccent,
                         focusedContentColor = TvBackgroundTop,
                         disabledContentColor = TvPureWhite.copy(alpha = 0.2f)
                     ),
@@ -461,7 +399,7 @@ fun AnimeListContent(
                             shape = RoundedCornerShape(10.dp)
                         ),
                         focusedBorder = Border(
-                            border = BorderStroke(2.dp, TvAccentCyan),
+                            border = BorderStroke(2.dp, TvAccent),
                             shape = RoundedCornerShape(10.dp)
                         )
                     ),

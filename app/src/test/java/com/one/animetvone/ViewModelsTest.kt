@@ -35,8 +35,8 @@ class ViewModelsTest {
         Dispatchers.setMain(testDispatcher)
         testService = object : Anime1Service() {
             override suspend fun fetchAnimeList() = listOf(
-                Anime1Item(1, "Cyber Neon: Edge Protocol", "12話", "2024年春", "極影", "TV"),
-                Anime1Item(2, "Shadow Arise", "連載中", "2024年冬", "動漫國", "TV")
+                Anime1Item(1, "Cyber Neon: Edge Protocol", "12話", "2024", "春", "極影"),
+                Anime1Item(2, "Shadow Arise", "連載中", "2024", "冬", "動漫國")
             )
 
             override suspend fun fetchEpisodeTokens(animeId: String) = listOf(
@@ -89,6 +89,19 @@ class ViewModelsTest {
 
         state = viewModel.uiState.value
         assertEquals("Cyber", state.searchQuery)
+        assertEquals(1, state.filteredAnimeList.size)
+        assertEquals("Cyber Neon: Edge Protocol", state.filteredAnimeList.first().title)
+
+        // Season chips are derived from the combined "YYYY年X" genre tag built
+        // from the real anime1 wire format (separate year + season fields).
+        viewModel.onSearchQueryChanged("")
+        advanceUntilIdle()
+        assertTrue(viewModel.uiState.value.availableSeasons.contains("2024年春"))
+        assertTrue(viewModel.uiState.value.availableSeasons.contains("2024年冬"))
+
+        viewModel.onSeasonSelected("2024年春")
+        advanceUntilIdle()
+        state = viewModel.uiState.value
         assertEquals(1, state.filteredAnimeList.size)
         assertEquals("Cyber Neon: Edge Protocol", state.filteredAnimeList.first().title)
     }

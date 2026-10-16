@@ -50,10 +50,9 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.one.animetvone.ui.theme.AnimetvoneTheme
-import com.one.animetvone.ui.theme.TvAccentCyan
+import com.one.animetvone.ui.theme.TvAccent
 import com.one.animetvone.ui.theme.TvBackgroundTop
 import com.one.animetvone.ui.theme.TvCardBorder
-import com.one.animetvone.ui.theme.TvCardFocusHighlight
 import com.one.animetvone.ui.theme.TvPureWhite
 
 enum class NavTab(
@@ -116,7 +115,7 @@ fun SideNavigationRail(
                 Box(
                     modifier = Modifier
                         .size(36.dp)
-                        .background(TvAccentCyan, RoundedCornerShape(10.dp)),
+                        .background(TvAccent, RoundedCornerShape(10.dp)),
                     contentAlignment = Alignment.Center
                 ) {
                     Image(
@@ -157,13 +156,12 @@ fun SideNavigationRail(
                     val itemShape = RoundedCornerShape(12.dp)
                     val isHighlighted = isSelected || isItemFocused
                     val itemBackground = when {
-                        isItemFocused -> TvAccentCyan.copy(alpha = if (isSelected) 0.34f else 0.22f)
-                        isSelected -> TvCardFocusHighlight
+                        isItemFocused -> TvPureWhite.copy(alpha = 0.14f)
+                        isSelected -> TvAccent.copy(alpha = 0.16f)
                         else -> Color.Transparent
                     }
                     val itemBorder = when {
-                        isItemFocused -> TvAccentCyan
-                        isSelected -> TvAccentCyan.copy(alpha = 0.68f)
+                        isItemFocused -> TvPureWhite
                         else -> Color.Transparent
                     }
 
@@ -171,11 +169,11 @@ fun SideNavigationRail(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(56.dp)
-                            .padding(horizontal = 8.dp)
+                            .padding(horizontal = 10.dp)
                             .clip(itemShape)
                             .background(itemBackground)
                             .border(
-                                width = if (isItemFocused) 2.dp else 1.dp,
+                                width = if (isItemFocused) 2.dp else 0.dp,
                                 color = itemBorder,
                                 shape = itemShape
                             )
@@ -198,7 +196,7 @@ fun SideNavigationRail(
                                     .fillMaxHeight(0.62f)
                                     .clip(RoundedCornerShape(2.dp))
                                     .background(
-                                        color = if (isHighlighted) TvAccentCyan else Color.Transparent
+                                        color = if (isSelected) TvAccent else Color.Transparent
                                     )
                             )
 

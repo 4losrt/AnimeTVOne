@@ -5,21 +5,25 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.one.animetvone.data.model.Anime
 import com.one.animetvone.data.model.Episode
+import com.one.animetvone.data.model.HistoryItem
 import com.one.animetvone.data.repository.AnimeRepository
 import com.one.animetvone.data.repository.AnimeRepositoryProvider
 import com.one.animetvone.data.repository.FavoritesManager
 import com.one.animetvone.data.source.CoverImageFetcher
+import com.one.animetvone.data.source.HistoryManager
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
-import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 data class DetailUiState(
     val anime: Anime? = null,
     val episodes: List<Episode> = emptyList(),
+    val historyItems: List<HistoryItem> = emptyList(),
     val isFavorite: Boolean = false,
     val isLoading: Boolean = false,
     val errorMessage: String? = null
@@ -75,6 +79,17 @@ class DetailViewModel(
                         it.copy(episodes = episodes)
                     }
                 }
+        }
+
+        // Playback history is read off the main thread: it parses a small JSON
+        // document and must never run during composition.
+        if (context != null) {
+            viewModelScope.launch {
+                val history = withContext(Dispatchers.IO) {
+                    HistoryManager.getHistoryList(context)
+                }
+                _uiState.update { it.copy(historyItems = history) }
+            }
         }
     }
 

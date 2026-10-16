@@ -37,15 +37,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -63,8 +60,9 @@ import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import com.one.animetvone.data.model.HistoryItem
+import com.one.animetvone.ui.components.TvEmptyView
 import com.one.animetvone.ui.theme.AnimetvoneTheme
-import com.one.animetvone.ui.theme.TvAccentCyan
+import com.one.animetvone.ui.theme.TvAccent
 import com.one.animetvone.ui.theme.TvBackgroundBottom
 import com.one.animetvone.ui.theme.TvBackgroundTop
 import com.one.animetvone.ui.theme.TvCardBackground
@@ -148,7 +146,7 @@ fun HistoryContent(
                 Icon(
                     imageVector = Icons.Rounded.History,
                     contentDescription = "History",
-                    tint = TvAccentCyan,
+                    tint = TvAccent,
                     modifier = Modifier.size(28.dp)
                 )
                 Spacer(modifier = Modifier.width(12.dp))
@@ -206,49 +204,13 @@ fun HistoryContent(
         Spacer(modifier = Modifier.height(18.dp))
 
         if (historyItems.isEmpty()) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(bottom = 60.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(
-                        imageVector = Icons.Rounded.History,
-                        contentDescription = "Empty History",
-                        tint = TvOnSurfaceMuted,
-                        modifier = Modifier.size(72.dp)
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text(
-                        text = "尚無播放紀錄",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = TvPureWhite
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "觀看的動畫集數會自動記錄在此處，方便您隨時續播",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = TvOnSurfaceMuted,
-                        textAlign = TextAlign.Center
-                    )
-                    Spacer(modifier = Modifier.height(24.dp))
-                    OutlinedButton(
-                        onClick = onExploreClick,
-                        colors = OutlinedButtonDefaults.colors(
-                            contentColor = TvPureWhite,
-                            focusedContainerColor = TvAccentCyan,
-                            focusedContentColor = TvBackgroundTop
-                        ),
-                        border = OutlinedButtonDefaults.border(
-                            border = Border(border = BorderStroke(1.dp, TvCardBorder), shape = RoundedCornerShape(8.dp)),
-                            focusedBorder = Border(border = BorderStroke(2.dp, TvAccentCyan), shape = RoundedCornerShape(8.dp))
-                        )
-                    ) {
-                        Text(text = "瀏覽動畫列表")
-                    }
-                }
-            }
+            TvEmptyView(
+                icon = Icons.Rounded.History,
+                title = "尚無播放紀錄",
+                description = "觀看的動畫集數會自動記錄在此處，方便您隨時續播",
+                actionLabel = "瀏覽動畫列表",
+                onAction = onExploreClick
+            )
         } else {
             LazyVerticalGrid(
                 columns = GridCells.Fixed(4),
@@ -296,7 +258,7 @@ fun HistoryCard(
             .onFocusChanged { isCardFocused = it.isFocused || it.hasFocus }
             .border(
                 width = if (isCardFocused) 2.dp else 1.dp,
-                color = if (isCardFocused) TvAccentCyan else TvCardBorder,
+                color = if (isCardFocused) TvAccent else TvCardBorder,
                 shape = RoundedCornerShape(12.dp)
             )
             .clip(RoundedCornerShape(12.dp))
@@ -341,7 +303,7 @@ fun HistoryCard(
                     colors = ClickableSurfaceDefaults.colors(containerColor = Color.Transparent),
                     border = ClickableSurfaceDefaults.border(
                         focusedBorder = Border(
-                            border = BorderStroke(2.dp, TvAccentCyan),
+                            border = BorderStroke(2.dp, TvAccent),
                             shape = RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp)
                         )
                     ),
@@ -368,7 +330,7 @@ fun HistoryCard(
                     Text(
                         text = displayEpTitle,
                         style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                        color = TvAccentCyan
+                        color = TvAccent
                     )
                 }
 
@@ -442,7 +404,7 @@ fun HistoryCard(
                         .align(Alignment.BottomCenter)
                         .fillMaxWidth()
                         .height(4.dp),
-                    color = TvAccentCyan,
+                    color = TvAccent,
                     trackColor = Color.White.copy(alpha = 0.25f)
                 )
             }

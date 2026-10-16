@@ -5,7 +5,6 @@ import com.one.animetvone.data.model.Anime1Item
 import com.squareup.moshi.JsonReader
 import okio.Buffer
 import org.jsoup.Jsoup
-import kotlin.math.abs
 
 object Anime1Parser {
 
@@ -16,9 +15,9 @@ object Anime1Parser {
      * item[0] = id (Int)
      * item[1] = title (String)
      * item[2] = episodeCount/status (String)
-     * item[3] = season (String)
-     * item[4] = subtitleGroup (String)
-     * item[5] = category/type (String)
+     * item[3] = year (String, e.g. "2026")
+     * item[4] = season (String, single char e.g. "秋", may be blank)
+     * item[5] = subtitle/fansub group (String, may be blank)
      * Filter out item[0] <= 0 (adult/invalid entries).
      */
     fun parseAnimeListJson(jsonString: String): List<Anime1Item> {
@@ -36,9 +35,9 @@ object Anime1Parser {
                         var id = -1
                         var title = ""
                         var epStatus = ""
+                        var year = ""
                         var season = ""
                         var subtitleGroup = ""
-                        var category = ""
                         var index = 0
 
                         while (reader.hasNext()) {
@@ -46,9 +45,9 @@ object Anime1Parser {
                                 0 -> id = parseIdValue(reader)
                                 1 -> title = parseNextString(reader)
                                 2 -> epStatus = parseNextString(reader)
-                                3 -> season = parseNextString(reader)
-                                4 -> subtitleGroup = parseNextString(reader)
-                                5 -> category = parseNextString(reader)
+                                3 -> year = parseNextString(reader)
+                                4 -> season = parseNextString(reader)
+                                5 -> subtitleGroup = parseNextString(reader)
                                 else -> reader.skipValue()
                             }
                             index++
@@ -61,9 +60,9 @@ object Anime1Parser {
                                     id = id,
                                     title = title,
                                     episodeCountOrStatus = epStatus,
+                                    year = year,
                                     season = season,
-                                    subtitleGroup = subtitleGroup,
-                                    category = category
+                                    subtitleGroup = subtitleGroup
                                 )
                             )
                         }
@@ -248,19 +247,8 @@ object Anime1Parser {
             }
         }
 
-        // Fallback: Ensure all 7 days have items for TV display
-        DAYS_OF_WEEK.forEachIndexed { dayIdx, dayName ->
-            val list = resultMap[dayName]!!
-            if (list.isEmpty()) {
-                val itemsForDay = safeList.filter { (abs(it.id) % 7) == dayIdx }.take(8)
-                if (itemsForDay.isNotEmpty()) {
-                    list.addAll(itemsForDay)
-                } else {
-                    list.addAll(safeList.take(6))
-                }
-            }
-        }
-
+        // No fabricated padding: days without a real match stay empty so the UI
+        // can show an honest "no schedule" state instead of invented entries.
         return resultMap
     }
 
@@ -309,7 +297,7 @@ object Anime1Parser {
     }
 
     fun extractCatFromUrl(url: String): Int? {
-        val match = Regex("""cat=(\d+)""").find(url)
+        val match = CAT_PATTERN.find(url)
         return match?.groupValues?.get(1)?.toIntOrNull()
     }
     fun collectCellItems(
@@ -476,26 +464,34 @@ object Anime1Parser {
     fun extractEpisodeNumber(title: String): Int? {
         if (title.isBlank()) return null
 
-        val bracketMatch = Regex("""\[(\d+)(?:\.\d+)?]""").find(title)
+        val bracketMatch = EP_BRACKET_PATTERN.find(title)
         if (bracketMatch != null) {
             bracketMatch.groupValues[1].toIntOrNull()?.let { return it }
         }
 
-        val chMatch = Regex("""第\s*(\d+)\s*[話集]""").find(title)
+        val chMatch = EP_HUA_PATTERN.find(title)
         if (chMatch != null) {
             chMatch.groupValues[1].toIntOrNull()?.let { return it }
         }
 
-        val epMatch = Regex("""(?:EP|Ep|ep)\.?\s*(\d+)""").find(title)
+        val epMatch = EP_EN_PATTERN.find(title)
         if (epMatch != null) {
             epMatch.groupValues[1].toIntOrNull()?.let { return it }
         }
 
-        val numMatch = Regex("""\b(\d+)\b""").find(title)
+        val numMatch = EP_NUMBER_PATTERN.find(title)
         if (numMatch != null) {
             numMatch.groupValues[1].toIntOrNull()?.let { return it }
         }
 
         return null
     }
+
+    // Hoisted: these run per article/link while parsing episode lists and the
+    // weekly schedule table, so they must not be recompiled on every call.
+    private val CAT_PATTERN = Regex("""cat=(\d+)""")
+    private val EP_BRACKET_PATTERN = Regex("""\[(\d+)(?:\.\d+)?]""")
+    private val EP_HUA_PATTERN = Regex("""第\s*(\d+)\s*[話集]""")
+    private val EP_EN_PATTERN = Regex("""(?:EP|Ep|ep)\.?\s*(\d+)""")
+    private val EP_NUMBER_PATTERN = Regex("""\b(\d+)\b""")
 }

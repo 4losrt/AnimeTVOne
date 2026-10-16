@@ -2,19 +2,27 @@ package com.one.animetvone.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-// Android TV UI Color Tokens
-// Only tokens actually referenced by the UI are kept here; dead aliases were
-// removed during cleanup to avoid drift.
-val TvBackgroundTop = Color(0xFF060913)
-val TvBackgroundBottom = Color(0xFF0D1424)
+// Streaming-style palette (Disney+/Netflix inspired): near-black canvas,
+// high-contrast white typography, a single vivid blue accent for focus/primary
+// actions, and a violet tint used sparingly for gradients.
 
-val TvAccentCyan = Color(0xFF00A8E8)
-val TvAccentBlue = Color(0xFF0072FF)
+// Canvas
+val TvBackgroundTop = Color(0xFF04060C)
+val TvBackgroundBottom = Color(0xFF0A1122)
+
+// Accent (primary) + focus/hover highlight
+val TvAccent = Color(0xFF1B6BFF)
+val TvAccentBright = Color(0xFF4C8DFF)
+val TvAccentGlow = Color(0xFF2E7BFF)
+val TvAccentViolet = Color(0xFF7B4DFF)
+
 val TvPureWhite = Color(0xFFFFFFFF)
 
-val TvCardBackground = Color(0xFF161F33)
-val TvCardBorder = Color(0xFF2A3859)
-val TvCardFocusHighlight = Color(0xFF1E2C48)
+// Surfaces
+val TvCardBackground = Color(0xFF121A2B)
+val TvCardBorder = Color(0xFF26314A)
+val TvCardFocusHighlight = Color(0xFF1B2740)
 
-val TvOnBackground = Color(0xFFF8FAFC)
-val TvOnSurfaceMuted = Color(0xFF8E95A5)
+// Text
+val TvOnBackground = Color(0xFFF7F9FC)
+val TvOnSurfaceMuted = Color(0xFF97A3B8)

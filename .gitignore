@@ -1,20 +1,25 @@
 *.iml
 .gradle
-/local.properties
-/.idea/caches
-/.idea/libraries
-/.idea/modules.xml
-/.idea/workspace.xml
-/.idea/navEditor.xml
-/.idea/assetWizardSettings.xml
+.kotlin
+.idea/
+.agent
 .DS_Store
+
+# Local machine config (Android SDK path, etc.) — never commit
+local.properties
+/local.properties
+
+# Build output
 /build
+/app/build
 /captures
 .externalNativeBuild
 .cxx
-local.properties
-.kotlin
-.agent
-/app/build
+
+# Runtime cache accidentally produced by local runs/tests
+anime_list_cache.json
+app/anime_list_cache.json
+
+# Images: keep app artwork, ignore everything else
 *.png
 !app/src/main/res/drawable*/*.png

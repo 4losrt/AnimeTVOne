@@ -12,23 +12,23 @@ import androidx.tv.material3.MaterialTheme as TvMaterialTheme
 import androidx.tv.material3.darkColorScheme as tvDarkColorScheme
 
 private val TvDarkColorScheme = darkColorScheme(
-    primary = TvAccentCyan,
-    secondary = TvAccentBlue,
-    tertiary = TvAccentCyan,
+    primary = TvAccent,
+    secondary = TvAccentBright,
+    tertiary = TvAccentViolet,
     background = TvBackgroundTop,
     surface = TvCardBackground,
     surfaceVariant = TvCardFocusHighlight,
     onBackground = TvOnBackground,
     onSurface = TvOnBackground,
-    onPrimary = TvBackgroundTop,
-    onSecondary = TvBackgroundTop,
+    onPrimary = TvPureWhite,
+    onSecondary = TvPureWhite,
 )
 
 private val TvMaterialDarkColorScheme = tvDarkColorScheme(
-    primary = TvAccentCyan,
-    onPrimary = TvBackgroundTop,
-    secondary = TvAccentBlue,
-    onSecondary = TvBackgroundTop,
+    primary = TvAccent,
+    onPrimary = TvPureWhite,
+    secondary = TvAccentBright,
+    onSecondary = TvPureWhite,
     background = TvBackgroundTop,
     onBackground = TvOnBackground,
     surface = TvCardBackground,

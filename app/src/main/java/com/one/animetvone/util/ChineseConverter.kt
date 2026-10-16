@@ -122,6 +122,12 @@ object ChineseConverter {
     private val charMap: Map<Char, Char> = charPairs.toMap()
     private val reverseCharMap: Map<Char, Char> = charPairs.associate { (simplified, traditional) -> traditional to simplified }
 
+    // Hoisted so hot paths (mapping ~1,900 titles on sync, per-card renders) do
+    // not recompile these patterns on every call.
+    private val EP_PATTERN = Regex("""(?i)\bEP\s*(\d+)""")
+    private val HUA_PATTERN = Regex("""第\s*(\d+)\s*話""")
+    private val TRAILING_HUA_PATTERN = Regex("""(\d+)\s*話""")
+
     fun toSimplifiedChinese(text: String?): String {
         if (text.isNullOrBlank()) return ""
         val sb = StringBuilder(text.length)
@@ -152,9 +158,9 @@ object ChineseConverter {
 
         // 3. Normalize Episode / Season / HD terminology
         result = result
-            .replace(Regex("""(?i)\bEP\s*(\d+)"""), "第 $1 集")
-            .replace(Regex("""第\s*(\d+)\s*話"""), "第 $1 集")
-            .replace(Regex("""(\d+)\s*話"""), "$1 集")
+            .replace(EP_PATTERN, "第 $1 集")
+            .replace(HUA_PATTERN, "第 $1 集")
+            .replace(TRAILING_HUA_PATTERN, "$1 集")
             .replace("HD 1080P", "高清 1080P")
 
         return result

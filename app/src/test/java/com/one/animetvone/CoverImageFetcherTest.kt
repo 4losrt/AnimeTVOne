@@ -3,14 +3,11 @@ package com.one.animetvone
 import com.one.animetvone.data.source.CoverImageFetcher
 import com.one.animetvone.data.source.PrepopulatedCovers
 import kotlinx.coroutines.runBlocking
-import okhttp3.OkHttpClient
-import okhttp3.Request
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import java.util.concurrent.TimeUnit
 
 class CoverImageFetcherTest {
 

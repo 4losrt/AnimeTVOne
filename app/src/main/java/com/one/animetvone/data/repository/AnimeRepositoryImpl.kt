@@ -28,7 +28,6 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.concurrent.ConcurrentHashMap
-import kotlin.math.abs
 
 class AnimeRepositoryImpl(
     private val anime1Service: Anime1Service = Anime1Service(),
@@ -193,17 +192,24 @@ class AnimeRepositoryImpl(
             val animeItems = getOrFetchAnimeList()
             if (animeItems.isNotEmpty()) {
                 // 1) Try the current-season schedule page first: it carries the real
-                //    weekly table (the homepage table-list does not).
-                val (year, seasonFull) = currentSeasonYearAndName()
+                //    weekly table (the homepage table-list does not). The site does
+                //    not always have this season's page yet, so walk back a few
+                //    seasons until one exists.
                 var scheduleMap: Map<String, List<Anime1Item>>? = null
-                try {
-                    val seasonHtml = anime1Service.fetchSeasonScheduleHtml(year, seasonFull)
-                    if (seasonHtml.isNotBlank()) {
-                        scheduleMap = Anime1Parser.parseScheduleFromHtml(seasonHtml, animeItems)
+                for ((seasonYear, seasonName) in recentSeasons()) {
+                    try {
+                        val seasonHtml = anime1Service.fetchSeasonScheduleHtml(seasonYear, seasonName)
+                        if (seasonHtml.isNotBlank()) {
+                            val parsed = Anime1Parser.parseScheduleFromHtml(seasonHtml, animeItems)
+                            if (parsed.values.any { it.isNotEmpty() }) {
+                                scheduleMap = parsed
+                                break
+                            }
+                        }
+                    } catch (e: Exception) {
+                        if (e is CancellationException) throw e
+                        e.printStackTrace()
                     }
-                } catch (e: Exception) {
-                    if (e is CancellationException) throw e
-                    e.printStackTrace()
                 }
 
                 // 2) Homepage HTML as a secondary source.
@@ -218,8 +224,6 @@ class AnimeRepositoryImpl(
                 }
 
                 if (scheduleMap != null && scheduleMap.values.any { it.isNotEmpty() }) {
-                    // val counts = scheduleMap.map { (day, items) -> "$day=${items.size}" }
-                    // android.util.Log.i("Anime1Schedule", "parsed days: ${counts.joinToString(",")}")
                     // Fast 0ms construction: covers come from cache only, never
                     // triggers network here. Schedule must stay light for TV.
                     val scheduleDays = scheduleMap.map { (dayName, items) ->
@@ -237,16 +241,13 @@ class AnimeRepositoryImpl(
             e.printStackTrace()
         }
 
-        val days = Anime1Parser.DAYS_OF_WEEK
-        val currentList = _animeListState.value.ifEmpty { SampleAnimeData.sampleAnimes }
-        val fallbackDays = days.mapIndexed { index, dayName ->
-            ScheduleDay(
-                dayName = dayName,
-                animes = currentList.filterIndexed { idx, _ -> idx % days.size == index }
-                    .ifEmpty { currentList }
-            )
+        // No real schedule data available. Emit the empty weekly frame (honest
+        // state) instead of fabricating a schedule by slicing the anime list:
+        // a made-up schedule is worse than "no schedule yet".
+        val emptyDays = Anime1Parser.DAYS_OF_WEEK.map { dayName ->
+            ScheduleDay(dayName = dayName, animes = emptyList())
         }
-        emit(fallbackDays)
+        emit(emptyDays)
     }
 
     override fun getAllAnimeList(): Flow<List<Anime>> = _animeListState
@@ -261,34 +262,6 @@ class AnimeRepositoryImpl(
         }
         val matched = currentList.filter { favoriteIds.contains(it.id) }
         emit(matched)
-    }
-
-    override fun searchAnime(query: String, category: String?): Flow<List<Anime>> = flow {
-        val trimmedQuery = query.trim()
-        val requestedCategory = category?.trim()
-        val currentList = _animeListState.value.ifEmpty {
-            AnimeListDiskCache.loadFromDisk().ifEmpty { SampleAnimeData.sampleAnimes }
-        }
-
-        val filtered = currentList.filter { anime ->
-            val matchesQuery = if (trimmedQuery.isEmpty()) {
-                true
-            } else {
-                anime.title.contains(trimmedQuery, ignoreCase = true) ||
-                        anime.description.contains(trimmedQuery, ignoreCase = true) ||
-                        anime.genres.any { it.contains(trimmedQuery, ignoreCase = true) }
-            }
-
-            val matchesCategory = if (requestedCategory.isNullOrBlank() || requestedCategory.equals("All", ignoreCase = true) || requestedCategory.equals("全部", ignoreCase = true)) {
-                true
-            } else {
-                anime.genres.any { it.equals(requestedCategory, ignoreCase = true) || it.contains(requestedCategory, ignoreCase = true) }
-            }
-
-            matchesQuery && matchesCategory
-        }
-
-        emit(filtered)
     }
 
     override fun getAnimeDetails(animeId: String): Flow<Anime?> = flow {
@@ -445,18 +418,40 @@ class AnimeRepositoryImpl(
      * names (冬季/春季/夏季/秋季) with day-aware boundaries (season flips on
      * the 2nd of Jan/Apr/Jul/Oct).
      */
-    private fun currentSeasonYearAndName(): Pair<Int, String> {
+    private val seasonNames = listOf("冬季", "春季", "夏季", "秋季")
+
+    /** Current season as (year, index 0..3) with day-aware boundaries. */
+    private fun currentSeason(): Pair<Int, Int> {
         val now = java.util.Calendar.getInstance()
         val year = now.get(java.util.Calendar.YEAR)
         val month = now.get(java.util.Calendar.MONTH) + 1
         val day = now.get(java.util.Calendar.DAY_OF_MONTH)
-        val season = when {
-            (month == 1 && day >= 2) || month == 2 || month == 3 || (month == 4 && day < 2) -> "冬季"
-            (month == 4 && day >= 2) || month == 5 || month == 6 || (month == 7 && day < 2) -> "春季"
-            (month == 7 && day >= 2) || month == 8 || month == 9 || (month == 10 && day < 2) -> "夏季"
-            else -> "秋季"
+        val index = when {
+            (month == 1 && day >= 2) || month == 2 || month == 3 || (month == 4 && day < 2) -> 0
+            (month == 4 && day >= 2) || month == 5 || month == 6 || (month == 7 && day < 2) -> 1
+            (month == 7 && day >= 2) || month == 8 || month == 9 || (month == 10 && day < 2) -> 2
+            else -> 3
         }
-        return Pair(year, season)
+        return year to index
+    }
+
+    /**
+     * Season pages as (year, name), newest first. anime1.me does not always have
+     * the current season's page yet (it 404s), so callers walk back until they
+     * find a season page that actually exists.
+     */
+    private fun recentSeasons(count: Int = 3): List<Pair<Int, String>> {
+        var (year, index) = currentSeason()
+        val result = mutableListOf<Pair<Int, String>>()
+        repeat(count) {
+            result.add(year to seasonNames[index])
+            index--
+            if (index < 0) {
+                index = seasonNames.lastIndex
+                year--
+            }
+        }
+        return result
     }
 
     private suspend fun getOrFetchAnimeList(): List<Anime1Item> {
@@ -469,28 +464,36 @@ class AnimeRepositoryImpl(
     }
 
     private fun buildFeedSectionsFromAnimeList(items: List<Anime>): List<AnimeFeedSection> {
-        val mappedAnimes = items.take(40)
+        if (items.isEmpty()) return emptyList()
 
-        val recentAnime = mappedAnimes.take(10)
-        val ongoingAnime = mappedAnimes.filter { anime ->
-            anime.status.contains("連載") || anime.status.contains("更新") || anime.status.contains("ONGOING", ignoreCase = true)
-        }.ifEmpty { mappedAnimes.drop(10).take(10) }
+        val recentAnime = items.take(12)
 
-        val popularAnime = mappedAnimes.sortedByDescending { it.rating }.take(10)
+        val ongoingAnime = items.filter { anime ->
+            anime.status.contains("連載") || anime.status.contains("更新") ||
+                anime.status.contains("ONGOING", ignoreCase = true)
+        }.take(12)
 
-        return listOf(
-            AnimeFeedSection("section_recent", "今日更新", recentAnime),
-            AnimeFeedSection("section_ongoing", "熱門連載", ongoingAnime),
-            AnimeFeedSection("section_popular", "精選推薦", popularAnime)
-        )
+        // 精選推薦: a deterministic spread across the whole catalogue so it does
+        // not just repeat the first page. There is no real rating source, so we
+        // must not fabricate or sort by one.
+        val step = maxOf(1, items.size / 12)
+        val featuredAnime = items.filterIndexed { index, _ -> index % step == 0 }.take(12)
+
+        return buildList {
+            add(AnimeFeedSection("section_recent", "今日更新", recentAnime))
+            if (ongoingAnime.isNotEmpty()) {
+                add(AnimeFeedSection("section_ongoing", "熱門連載", ongoingAnime))
+            }
+            add(AnimeFeedSection("section_popular", "精選推薦", featuredAnime))
+        }
     }
 
     /**
      * Fast mapping path for the initial sync: uses only 0ms local covers
      * (memory / SharedPreferences disk / prepopulated dictionary) so the
      * real anime1.me list is emitted to the UI instantly. Remaining covers
-     * are resolved in the background by CoverImageFetcher.prefetchCovers
-     * and merged through the coverUpdates listener.
+     * are resolved on demand by AnimeCard and merged back through the
+     * coverUpdates listener.
      */
     private fun mapAnime1ItemToAnimeFast(item: Anime1Item): Anime {
         val title = ChineseConverter.toTraditionalChinese(item.title)
@@ -517,24 +520,42 @@ class AnimeRepositoryImpl(
         val animeId = item.id.toString()
         val existing = animeMapCache[animeId]
 
+        val yearValue = extractYear(item.year)
+        val seasonChar = item.season.trim().takeIf { it in SEASON_CHARS }
+
+        // Store the season as a single genre tag like "2026年秋" so the season
+        // filter chips and the poster season badge work off real data. (The
+        // anime1.me year and season live in separate fields.)
+        val seasonTag = when {
+            yearValue != null && seasonChar != null -> "${yearValue}年$seasonChar"
+            yearValue != null -> "${yearValue}年"
+            else -> null
+        }
+
         val genres = mutableListOf<String>()
-        if (item.category.isNotBlank()) genres.add(ChineseConverter.toTraditionalChinese(item.category))
-        if (item.season.isNotBlank()) genres.add(ChineseConverter.toTraditionalChinese(item.season))
+        if (seasonTag != null) genres.add(seasonTag)
         if (genres.isEmpty()) genres.add("動畫")
 
         val rawStatus = if (item.episodeCountOrStatus.isBlank()) "已完結" else item.episodeCountOrStatus
         val statusText = ChineseConverter.toTraditionalChinese(rawStatus)
-        val parsedYear = extractYearFromSeason(item.season) ?: 2024
-        val episodeCount = extractEpisodeCount(item.episodeCountOrStatus) ?: 12
+        val parsedYear = yearValue ?: 0
+        val episodeCount = extractEpisodeCount(item.episodeCountOrStatus) ?: 0
 
         val descriptionText = buildString {
             append("Anime1.me 動畫專區。")
-            if (item.season.isNotBlank()) append(" 播放季度：${ChineseConverter.toTraditionalChinese(item.season)}。")
-            if (item.category.isNotBlank()) append(" 分類：${ChineseConverter.toTraditionalChinese(item.category)}。")
-            if (item.episodeCountOrStatus.isNotBlank()) append(" 集數狀態：${ChineseConverter.toTraditionalChinese(item.episodeCountOrStatus)}。")
+            if (seasonTag != null) append(" 播放季度：$seasonTag。")
+            if (item.subtitleGroup.isNotBlank()) {
+                append(" 字幕組：${ChineseConverter.toTraditionalChinese(item.subtitleGroup)}。")
+            }
+            if (item.episodeCountOrStatus.isNotBlank()) {
+                append(" 集數狀態：${ChineseConverter.toTraditionalChinese(item.episodeCountOrStatus)}。")
+            }
         }
 
-        val rating = 8.0 + (abs(animeId.hashCode()) % 18) / 10.0
+        // anime1.me exposes no rating data. We intentionally do NOT fabricate one
+        // (the old code hashed the id into a fake 8.0-9.7 score that looked like a
+        // real user rating). 0.0 means "unknown" and the UI hides the star badge.
+        val rating = 0.0
 
         val anime = Anime(
             id = animeId,
@@ -542,7 +563,7 @@ class AnimeRepositoryImpl(
             coverUrl = coverUrl,
             bannerUrl = coverUrl,
             description = descriptionText,
-            rating = (rating * 10).toInt() / 10.0,
+            rating = rating,
             genres = genres,
             year = parsedYear,
             status = statusText,
@@ -581,13 +602,17 @@ class AnimeRepositoryImpl(
         return tokenCandidate
     }
 
-    private fun extractYearFromSeason(season: String): Int? {
-        val match = Regex("""(\d{4})""").find(season)
-        return match?.groupValues?.get(1)?.toIntOrNull()
+    private fun extractYear(rawYear: String): Int? {
+        return YEAR_PATTERN.find(rawYear)?.value?.toIntOrNull()
     }
 
     private fun extractEpisodeCount(status: String): Int? {
-        val match = Regex("""(\d+)""").find(status)
-        return match?.groupValues?.get(1)?.toIntOrNull()
+        return COUNT_PATTERN.find(status)?.value?.toIntOrNull()
+    }
+
+    private companion object {
+        val SEASON_CHARS = setOf("春", "夏", "秋", "冬")
+        val YEAR_PATTERN = Regex("""\d{4}""")
+        val COUNT_PATTERN = Regex("""\d+""")
     }
 }

@@ -11,6 +11,14 @@ object AnimeListDiskCache {
     private const val PREF_NAME = "anime_disk_cache_prefs"
     private const val KEY_ANIME_LIST_JSON = "anime_list_cache_json"
     private const val KEY_LAST_UPDATED = "anime_list_cache_last_updated"
+    private const val KEY_CACHE_VERSION = "anime_list_cache_version"
+
+    /**
+     * Bump whenever the persisted Anime schema/semantics change so stale caches
+     * are discarded once and re-synced. v2: removed the fabricated `rating`
+     * values that earlier versions wrote into the cache.
+     */
+    private const val CACHE_VERSION = 2
     private const val CACHE_TTL_MS = 7L * 24 * 60 * 60 * 1000
     private const val FILE_NAME = "anime_list_cache.json"
 
@@ -32,27 +40,28 @@ object AnimeListDiskCache {
 
     /**
      * Reads local cache instantly (0ms) on app launch.
+     *
+     * The list lives in a single JSON file only. (It used to be mirrored into
+     * SharedPreferences too, which meant rewriting a multi-megabyte string into
+     * an XML preference file on every save — a real ANR risk on low-end TV
+     * boxes. SharedPreferences now only holds the tiny freshness timestamp.)
      */
     fun loadFromDisk(): List<Anime> {
         memoryCache?.let { return it }
 
+        // Discard caches written by older, incompatible versions (e.g. ones that
+        // carried fabricated ratings) so they get re-synced exactly once.
+        // Skipped when there is no app context (unit tests / custom cache file).
+        if (appContext != null && storedCacheVersion() != CACHE_VERSION) {
+            return emptyList()
+        }
+
         var jsonString: String? = null
 
-        // 1. Try reading from disk file
         val file = getCacheFile()
         if (file != null && file.exists() && file.length() > 0) {
             try {
                 jsonString = file.readText()
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-        }
-
-        // 2. Fallback to SharedPreferences if file reading failed or file was missing
-        if (jsonString.isNullOrBlank() && appContext != null) {
-            try {
-                val prefs = appContext!!.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
-                jsonString = prefs.getString(KEY_ANIME_LIST_JSON, null)
             } catch (e: Exception) {
                 e.printStackTrace()
             }
@@ -85,19 +94,25 @@ object AnimeListDiskCache {
             }
         }
 
-        // 2. Write to SharedPreferences
+        // 2. Persist only the freshness timestamp + schema version; also purge any
+        //    legacy multi-megabyte JSON that older versions stored in preferences.
         appContext?.let { ctx ->
             try {
                 val prefs = ctx.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
                 prefs.edit()
-                    .putString(KEY_ANIME_LIST_JSON, jsonString)
                     .putLong(KEY_LAST_UPDATED, System.currentTimeMillis())
+                    .putInt(KEY_CACHE_VERSION, CACHE_VERSION)
+                    .remove(KEY_ANIME_LIST_JSON)
                     .apply()
             } catch (e: Exception) {
                 e.printStackTrace()
             }
         }
     }
+
+    private fun storedCacheVersion(): Int = appContext
+        ?.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+        ?.getInt(KEY_CACHE_VERSION, 0) ?: 0
 
     /** Old data remains readable offline; this only controls network refreshes. */
     fun isFresh(now: Long = System.currentTimeMillis()): Boolean {
@@ -131,7 +146,11 @@ object AnimeListDiskCache {
 
     private fun getCacheFile(): File? {
         customCacheFile?.let { return it }
-        return appContext?.let { File(it.filesDir, FILE_NAME) } ?: File(FILE_NAME)
+        // Fall back to the app files dir; when there is no context (unit tests)
+        // use the system temp dir rather than the process working directory so we
+        // never litter the repository with a cache file.
+        return appContext?.let { File(it.filesDir, FILE_NAME) }
+            ?: File(System.getProperty("java.io.tmpdir"), FILE_NAME)
     }
 
     private fun parseAnimeListJson(jsonString: String?): List<Anime> {

@@ -6,8 +6,6 @@ import com.squareup.moshi.JsonReader
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -202,23 +200,6 @@ object CoverImageFetcher {
             }
         }
         return if (stripped != title && stripped.length >= 4) stripped else null
-    }
-
-    /**
-     * Pre-fetch covers in background Coroutines for visible items and cache in disk/memory.
-     */
-    fun prefetchCovers(context: Context? = null, titles: List<String>, scope: CoroutineScope? = null) {
-        val targetContext = context?.applicationContext ?: appContext
-        val uniqueTitles = titles.map { cleanAnimeTitle(it) }.filter { it.isNotBlank() }.distinct()
-        
-        val coroutineScope = scope ?: backgroundScope
-        coroutineScope.launch(Dispatchers.IO) {
-            uniqueTitles.map { title ->
-                async {
-                    getCoverUrl(targetContext, title)
-                }
-            }.awaitAll()
-        }
     }
 
     /**
@@ -717,31 +698,6 @@ object CoverImageFetcher {
                 null
             }
         } catch (e: Exception) {
-            null
-        }
-    }
-
-    private fun fetchOpenPosterCover(cleanTitle: String): String? {
-        return try {
-            val encodedTitle = URLEncoder.encode("$cleanTitle 海報", "UTF-8")
-            val url = "https://html.duckduckgo.com/html/?q=$encodedTitle"
-            val request = Request.Builder()
-                .url(url)
-                .header("User-Agent", USER_AGENT)
-                .build()
-
-            client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) {
-                    logD("CoverImageFetcher", "DuckDuckGo HTML HTTP ${response.code} for '$cleanTitle'")
-                    return null
-                }
-                val html = response.body?.string() ?: return null
-                logD("CoverImageFetcher", "DuckDuckGo HTML length for '$cleanTitle': ${html.length}")
-                val match = Regex("""https://[^"']+\.(?:jpg|jpeg|png)""", RegexOption.IGNORE_CASE).find(html)
-                match?.value
-            }
-        } catch (e: Exception) {
-            logD("CoverImageFetcher", "DuckDuckGo error for '$cleanTitle': ${e.message}")
             null
         }
     }
