@@ -47,6 +47,8 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.onKeyEvent
+import android.view.View
+import androidx.activity.compose.BackHandler
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -111,6 +113,12 @@ fun PlayerScreen(
 
     var resizeMode by remember { mutableStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
 
+    // Fast-forward / rewind accumulator used by consecutive ±10s operations.
+    // ExoPlayer's currentPosition lags behind seekTo() for a beat, so naive
+    // repeated presses all add 10s to the *stale* position and never compound.
+    var seekAnchorMs by remember { mutableStateOf<Long?>(null) }
+    var lastSeekPressMs by remember { mutableStateOf(0L) }
+
     val loadControl = remember {
         DefaultLoadControl.Builder()
             .setBufferDurationsMs(
@@ -135,6 +143,8 @@ fun PlayerScreen(
     }
 
     LaunchedEffect(episodeId) {
+        seekAnchorMs = null
+        lastSeekPressMs = 0L
         viewModel.loadEpisode(episodeId)
     }
 
@@ -282,6 +292,29 @@ fun PlayerScreen(
         focusRequester.requestFocus()
     }
 
+    // Keep the system bars hidden while playing so the video gets the whole
+    // screen on Fire/Android TV; restore them on exit (operator/back).
+    val activityContext = context
+    DisposableEffect(activityContext) {
+        val view = (activityContext as? android.app.Activity)?.window?.decorView
+        val prevAttr = view?.systemUiVisibility ?: 0
+        view?.systemUiVisibility = (
+            View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
+                View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or View.SYSTEM_UI_FLAG_LAYOUT_STABLE or
+                View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+            )
+        onDispose {
+            view?.systemUiVisibility = prevAttr
+        }
+    }
+
+    BackHandler(enabled = uiState.areControlsVisible) {
+        viewModel.setControlsVisible(false)
+    }
+    BackHandler(enabled = !uiState.areControlsVisible) {
+        onBackClick()
+    }
+
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -332,7 +365,15 @@ fun PlayerScreen(
                             if (uiState.areControlsVisible) {
                                 false
                             } else {
-                                val newPos = (exoPlayer.currentPosition - 10_000).coerceAtLeast(0L)
+                                val nowMs = System.currentTimeMillis()
+                                val basePos = if (seekAnchorMs != null && nowMs - lastSeekPressMs < 2000L) {
+                                    seekAnchorMs!!
+                                } else {
+                                    exoPlayer.currentPosition
+                                }
+                                val newPos = (basePos - 10_000).coerceAtLeast(0L)
+                                seekAnchorMs = newPos
+                                lastSeekPressMs = nowMs
                                 exoPlayer.seekTo(newPos)
                                 viewModel.updatePlaybackPosition(newPos, exoPlayer.duration)
                                 viewModel.setControlsVisible(true)
@@ -344,8 +385,17 @@ fun PlayerScreen(
                             if (uiState.areControlsVisible) {
                                 false
                             } else {
-                                val newPos = (exoPlayer.currentPosition + 10_000).coerceAtMost(exoPlayer.duration)
-                                exoPlayer.seekTo(newPos)
+                                val dur = exoPlayer.duration.coerceAtLeast(0L)
+                                val nowMs = System.currentTimeMillis()
+                                val basePos = if (seekAnchorMs != null && nowMs - lastSeekPressMs < 2000L) {
+                                    seekAnchorMs!!
+                                } else {
+                                    exoPlayer.currentPosition
+                                }
+                                val newPos = (basePos + 10_000).coerceAtMost(if (dur > 0) dur else Long.MAX_VALUE)
+                                seekAnchorMs = newPos
+                                lastSeekPressMs = nowMs
+                                exoPlayer.seekTo(newPos.coerceAtMost(if (dur > 0) dur else basePos + 10_000))
                                 viewModel.updatePlaybackPosition(newPos, exoPlayer.duration)
                                 viewModel.setControlsVisible(true)
                                 true
@@ -438,6 +488,8 @@ fun PlayerScreen(
                 },
                 onToggleFavorite = { viewModel.toggleFavorite(context) },
                 onPlayPauseToggle = {
+                    seekAnchorMs = null
+                    lastSeekPressMs = 0L
                     if (exoPlayer.isPlaying) {
                         exoPlayer.pause()
                         viewModel.setPlaying(false)
@@ -447,12 +499,31 @@ fun PlayerScreen(
                     }
                 },
                 onRewind10 = {
-                    val newPos = (exoPlayer.currentPosition - 10_000).coerceAtLeast(0L)
+                    val nowMs = System.currentTimeMillis()
+                    val duration = exoPlayer.duration.coerceAtLeast(0L)
+                    val basePos = if (seekAnchorMs != null && nowMs - lastSeekPressMs < 2000L) {
+                        seekAnchorMs!!
+                    } else {
+                        exoPlayer.currentPosition
+                    }
+                    val newPos = (basePos - 10_000).coerceAtLeast(0L)
+                    seekAnchorMs = newPos
+                    lastSeekPressMs = nowMs
                     exoPlayer.seekTo(newPos)
                     viewModel.updatePlaybackPosition(newPos, exoPlayer.duration)
                 },
                 onForward10 = {
-                    val newPos = (exoPlayer.currentPosition + 10_000).coerceAtMost(exoPlayer.duration)
+                    val nowMs = System.currentTimeMillis()
+                    val duration = exoPlayer.duration.coerceAtLeast(0L)
+                    val basePos = if (seekAnchorMs != null && nowMs - lastSeekPressMs < 2000L) {
+                        seekAnchorMs!!
+                    } else {
+                        exoPlayer.currentPosition
+                    }
+                    val cap = if (duration > 0L) duration else basePos + 10_000
+                    val newPos = (basePos + 10_000).coerceAtMost(cap)
+                    seekAnchorMs = newPos
+                    lastSeekPressMs = nowMs
                     exoPlayer.seekTo(newPos)
                     viewModel.updatePlaybackPosition(newPos, exoPlayer.duration)
                 },
@@ -460,6 +531,8 @@ fun PlayerScreen(
                     viewModel.playNextEpisode()
                 },
                 onSeek = { seekFraction ->
+                    seekAnchorMs = null
+                    lastSeekPressMs = 0L
                     val newPos = (seekFraction * exoPlayer.duration).toLong()
                     exoPlayer.seekTo(newPos)
                     viewModel.updatePlaybackPosition(newPos, exoPlayer.duration)
@@ -501,11 +574,14 @@ fun PlayerControlsOverlay(
     val displayAnimeTitle = remember(uiState.currentAnime?.title) {
         ChineseConverter.toTraditionalChinese(uiState.currentAnime?.title)
     }
-    val displayEpTitle = remember(uiState.currentEpisode?.title, uiState.currentEpisode?.episodeNumber) {
-        if (uiState.currentEpisode?.title != null) {
-            ChineseConverter.toTraditionalChinese(uiState.currentEpisode!!.title)
+    val displayEpTitle = remember(uiState.currentEpisode?.title, uiState.currentEpisode?.episodeNumber, uiState.episodeId) {
+        val rawTitle = uiState.currentEpisode?.title
+        if (!rawTitle.isNullOrBlank()) {
+            ChineseConverter.toTraditionalChinese(rawTitle)
         } else {
-            "第 ${uiState.currentEpisode?.episodeNumber ?: ""} 集"
+            val epNum = uiState.currentEpisode?.episodeNumber?.takeIf { it > 0 }
+                ?: uiState.episodeId?.substringAfter("_ep_", missingDelimiterValue = "")?.substringBefore("_", missingDelimiterValue = "")?.toIntOrNull()
+            if (epNum != null && epNum > 0) "第 $epNum 集" else ""
         }
     }
 

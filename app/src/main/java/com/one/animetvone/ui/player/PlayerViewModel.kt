@@ -53,12 +53,36 @@ class PlayerViewModel(
 
     fun loadEpisode(episodeId: String) {
         logD("Anime1Video", "PlayerViewModel loading episode: $episodeId")
-        _uiState.update {
-            it.copy(
+        if (_uiState.value.episodeId == episodeId && _uiState.value.isLoading) return
+
+        // Resolve the episode number up front so the player header can show a
+        // meaningful "第 N 集" label immediately, instead of waiting for the
+        // episode list (which downloads lazily and may race with the stream).
+        val animeId = episodeId.split("_ep_").firstOrNull() ?: ""
+        val epNumber = episodeId.split("_ep_").getOrNull(1)?.split("_")?.firstOrNull()?.toIntOrNull() ?: 0
+        val placeholderTitle = if (epNumber > 0) "第 $epNumber 集" else ""
+
+        // Preserve a previously-resolved currentEpisode only when it matches;
+        // otherwise drop stale title/number inherited from the last episode
+        // (otherwise the header shows the previous episode while the new one
+        //  loads).
+        _uiState.update { state ->
+            val keep = state.currentEpisode?.takeIf { it.id == episodeId }
+            state.copy(
                 episodeId = episodeId,
                 isLoading = true,
                 errorMessage = null,
-                playbackPosition = 0L
+                playbackPosition = 0L,
+                currentAnime = if (state.episodeId != episodeId) null else state.currentAnime,
+                currentEpisode = keep ?: Episode(
+                    id = episodeId,
+                    animeId = animeId,
+                    episodeNumber = epNumber,
+                    title = placeholderTitle,
+                    thumbnailUrl = "",
+                    duration = "24:00",
+                    streamUrl = ""
+                )
             )
         }
 
@@ -151,6 +175,7 @@ class PlayerViewModel(
 
     fun playNextEpisode() {
         val state = _uiState.value
+        if (state.isLoading || state.videoStream == null) return
         val currentIndex = state.episodes.indexOfFirst { it.id == state.episodeId }
         if (currentIndex != -1 && currentIndex < state.episodes.size - 1) {
             val nextEp = state.episodes[currentIndex + 1]
@@ -160,6 +185,7 @@ class PlayerViewModel(
 
     fun playPreviousEpisode() {
         val state = _uiState.value
+        if (state.isLoading || state.videoStream == null) return
         val currentIndex = state.episodes.indexOfFirst { it.id == state.episodeId }
         if (currentIndex > 0) {
             val prevEp = state.episodes[currentIndex - 1]
