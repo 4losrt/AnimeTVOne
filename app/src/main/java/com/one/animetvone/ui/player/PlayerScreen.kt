@@ -1,5 +1,6 @@
 package com.one.animetvone.ui.player
 
+import android.os.SystemClock
 import android.view.KeyEvent
 import androidx.annotation.OptIn
 import androidx.compose.animation.AnimatedVisibility
@@ -7,12 +8,14 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -29,6 +32,8 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.NavigateNext
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.FastForward
+import androidx.compose.material.icons.rounded.FastRewind
 import androidx.compose.material.icons.rounded.Forward10
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
@@ -39,6 +44,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -49,6 +55,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.onKeyEvent
@@ -57,6 +64,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
@@ -123,11 +131,15 @@ fun PlayerScreen(
     val playbackSpeed = uiState.playbackSpeed
     val resizeMode = uiState.resizeMode
 
-    // Fast-forward / rewind accumulator used by consecutive ±10s operations.
-    // ExoPlayer's currentPosition lags behind seekTo() for a beat, so naive
-    // repeated presses all add 10s to the *stale* position and never compound.
-    var seekAnchorMs by remember { mutableStateOf<Long?>(null) }
-    var lastSeekPressMs by remember { mutableStateOf(0L) }
+    // Remote-first fast-forward/rewind. Holding (or repeatedly tapping) the
+    // D-pad while the controls are hidden scrubs with progressive acceleration,
+    // and a heads-up display reports the jump size and where it landed. Two
+    // independent controllers so the coarse ±10s remote rhythm and the fine
+    // timeline scrub don't share an anchor.
+    val remoteSeek = remember { FastSeekController(baseStepMs = 10_000L) }
+    val scrubSeek = remember { FastSeekController(baseStepMs = 5_000L) }
+    var seekHud by remember { mutableStateOf<SeekHudState?>(null) }
+    var seekHudTick by remember { mutableIntStateOf(0) }
 
     val loadControl = remember {
         DefaultLoadControl.Builder()
@@ -152,9 +164,44 @@ fun PlayerScreen(
             }
     }
 
+    // Applies one fast-forward/rewind step (from a held D-pad press, a media
+    // key or a ±10s button) and refreshes the on-screen readout. Steps compound
+    // from the anchor taken at the start of a burst, because ExoPlayer's
+    // currentPosition lags seekTo() for a beat.
+    val performSeek: (FastSeekController, Int) -> Unit = { controller, direction ->
+        val durationMs = exoPlayer.duration.coerceAtLeast(0L)
+        val result = controller.press(
+            direction = direction,
+            currentPosMs = exoPlayer.currentPosition,
+            durationMs = durationMs,
+            nowMs = SystemClock.uptimeMillis()
+        )
+        if (result != null) {
+            val (target, delta) = result
+            exoPlayer.seekTo(target)
+            viewModel.updatePlaybackPosition(target, durationMs)
+            seekHud = SeekHudState(
+                direction = direction,
+                deltaMs = delta,
+                targetMs = target,
+                durationMs = durationMs
+            )
+            seekHudTick++
+        }
+    }
+
+    // Hide the seek readout shortly after the last step of a burst.
+    LaunchedEffect(seekHudTick) {
+        if (seekHudTick > 0) {
+            delay(1_200)
+            seekHud = null
+        }
+    }
+
     LaunchedEffect(episodeId) {
-        seekAnchorMs = null
-        lastSeekPressMs = 0L
+        remoteSeek.reset()
+        scrubSeek.reset()
+        seekHud = null
         viewModel.loadEpisode(episodeId)
     }
 
@@ -372,23 +419,33 @@ fun PlayerScreen(
         }
     }
 
+    // True while the controls overlay is actually on screen (it is hidden while
+    // loading, on error and while the episode list is open). The D-pad then
+    // belongs to the buttons, not to seeking.
+    val controlsOnScreen = controlsOverlayVisible
+
+    // True while any player overlay is on screen, so the D-pad should move focus
+    // instead of seeking.
+    val overlayOnScreen = controlsOverlayVisible || uiState.isEpisodeListVisible
+
+    // Whether the full-screen container itself — never one of its buttons — owns
+    // focus. Only read from the key handler below, so this never triggers a
+    // recomposition.
+    var containerFocused by remember { mutableStateOf(false) }
+
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(Color.Black)
             .focusRequester(focusRequester)
-            .focusProperties {
-                // Safety net: if the container itself is focused while the
-                // controls are visible, send the D-pad to the play/pause button
-                // instead of leaving focus stuck on the full-screen node.
-                // (focusProperties must precede focusable to attach to it.)
-                if (uiState.areControlsVisible) {
-                    up = playPauseFocusRequester
-                    down = playPauseFocusRequester
-                    left = playPauseFocusRequester
-                    right = playPauseFocusRequester
-                }
-            }
+            // No focusProperties here on purpose: a focus search resolves the
+            // FocusRequester stored in focusProperties and throws
+            // "FocusRequester is not initialized" if that requester is not
+            // attached to a composed node — and the overlay (and with it the
+            // play/pause requester) is absent while loading, on error and while
+            // the episode list is open. The D-pad is handed to the play/pause
+            // button explicitly below instead.
+            .onFocusChanged { containerFocused = it.isFocused }
             .focusable()
             .onKeyEvent { keyEvent ->
                 if (keyEvent.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
@@ -400,26 +457,42 @@ fun PlayerScreen(
                     if (uiState.areControlsVisible) {
                         viewModel.notifyControlsInteraction()
                     }
+                    // Hands focus to the play/pause button without a focus search,
+                    // which is what makes this fallback safe.
+                    val focusPlayPause = {
+                        runCatching { playPauseFocusRequester.requestFocus() }
+                        true
+                    }
+                    // Only when the bare container holds focus does the D-pad need
+                    // our help. If a button or a list item is focused we return
+                    // false so its own focusProperties move focus and the overlay's
+                    // explicit focus graph stays in charge.
+                    val containerOwnsFocus = containerFocused
                     when (keyCode) {
                         KeyEvent.KEYCODE_DPAD_CENTER,
                         KeyEvent.KEYCODE_ENTER,
                         KeyEvent.KEYCODE_NUMPAD_ENTER,
                         KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> {
-                            if (uiState.errorMessage != null || uiState.isLoading) {
-                                false
-                            } else if (uiState.areControlsVisible && keyCode != KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE) {
-                                // Let the focused child button handle OK.
-                                false
-                            } else {
-                                if (exoPlayer.isPlaying) {
-                                    exoPlayer.pause()
-                                    viewModel.setPlaying(false)
-                                } else {
-                                    exoPlayer.play()
-                                    viewModel.setPlaying(true)
+                            when {
+                                uiState.errorMessage != null || uiState.isLoading -> false
+                                // Let the focused button handle OK.
+                                keyCode != KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE &&
+                                    controlsOnScreen && containerOwnsFocus -> focusPlayPause()
+                                // OK on an overlay that owns focus (e.g. the episode
+                                // picker) belongs to that overlay.
+                                keyCode != KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE &&
+                                    overlayOnScreen -> false
+                                else -> {
+                                    if (exoPlayer.isPlaying) {
+                                        exoPlayer.pause()
+                                        viewModel.setPlaying(false)
+                                    } else {
+                                        exoPlayer.play()
+                                        viewModel.setPlaying(true)
+                                    }
+                                    viewModel.setControlsVisible(true)
+                                    true
                                 }
-                                viewModel.setControlsVisible(true)
-                                true
                             }
                         }
                         KeyEvent.KEYCODE_MEDIA_PLAY -> {
@@ -435,56 +508,55 @@ fun PlayerScreen(
                             true
                         }
                         KeyEvent.KEYCODE_DPAD_LEFT,
-                        KeyEvent.KEYCODE_MEDIA_REWIND -> {
-                            // 遙控器友好：控制列顯示時，左右鍵留給焦點移動（切換按鈕）；
-                            // 控制列隱藏時，左右鍵才是快退/快進。
-                            if (uiState.areControlsVisible) {
-                                false
-                            } else {
-                                val nowMs = System.currentTimeMillis()
-                                val basePos = if (seekAnchorMs != null && nowMs - lastSeekPressMs < 2000L) {
-                                    seekAnchorMs!!
-                                } else {
-                                    exoPlayer.currentPosition
+                        KeyEvent.KEYCODE_MEDIA_REWIND,
+                        KeyEvent.KEYCODE_MEDIA_STEP_BACKWARD -> {
+                            // 遙控器優先：控制列顯示時，左右鍵留給焦點移動（±10s 按鈕只差一次 OK）；
+                            // 控制列隱藏時，左右鍵＝快退，連續按（或長按）會累積加速，
+                            // 並顯示「快退 N 秒」提示。媒體鍵（⏪）則任何時候都快退。
+                            when {
+                                keyCode == KeyEvent.KEYCODE_DPAD_LEFT &&
+                                    controlsOnScreen && containerOwnsFocus -> focusPlayPause()
+                                // 控制列或集數清單顯示時，左右鍵屬於其上方的元件。
+                                keyCode == KeyEvent.KEYCODE_DPAD_LEFT && overlayOnScreen -> false
+                                else -> {
+                                    performSeek(remoteSeek, -1)
+                                    true
                                 }
-                                val newPos = (basePos - 10_000).coerceAtLeast(0L)
-                                seekAnchorMs = newPos
-                                lastSeekPressMs = nowMs
-                                exoPlayer.seekTo(newPos)
-                                viewModel.updatePlaybackPosition(newPos, exoPlayer.duration.coerceAtLeast(0L))
-                                viewModel.setControlsVisible(true)
-                                true
                             }
                         }
                         KeyEvent.KEYCODE_DPAD_RIGHT,
-                        KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> {
-                            if (uiState.areControlsVisible) {
-                                false
-                            } else {
-                                val dur = exoPlayer.duration.coerceAtLeast(0L)
-                                val nowMs = System.currentTimeMillis()
-                                val basePos = if (seekAnchorMs != null && nowMs - lastSeekPressMs < 2000L) {
-                                    seekAnchorMs!!
-                                } else {
-                                    exoPlayer.currentPosition
+                        KeyEvent.KEYCODE_MEDIA_FAST_FORWARD,
+                        KeyEvent.KEYCODE_MEDIA_STEP_FORWARD -> {
+                            when {
+                                keyCode == KeyEvent.KEYCODE_DPAD_RIGHT &&
+                                    controlsOnScreen && containerOwnsFocus -> focusPlayPause()
+                                keyCode == KeyEvent.KEYCODE_DPAD_RIGHT && overlayOnScreen -> false
+                                else -> {
+                                    performSeek(remoteSeek, 1)
+                                    true
                                 }
-                                val newPos = (basePos + 10_000).coerceAtMost(if (dur > 0) dur else Long.MAX_VALUE)
-                                seekAnchorMs = newPos
-                                lastSeekPressMs = nowMs
-                                exoPlayer.seekTo(newPos.coerceAtMost(if (dur > 0) dur else basePos + 10_000))
-                                viewModel.updatePlaybackPosition(newPos, exoPlayer.duration.coerceAtLeast(0L))
-                                viewModel.setControlsVisible(true)
-                                true
                             }
+                        }
+                        KeyEvent.KEYCODE_MEDIA_NEXT -> {
+                            // 遙控器／藍牙耳機的「下一首」= 下一集。
+                            viewModel.playNextEpisode()
+                            true
+                        }
+                        KeyEvent.KEYCODE_MEDIA_PREVIOUS -> {
+                            viewModel.playPreviousEpisode()
+                            true
                         }
                         KeyEvent.KEYCODE_DPAD_UP,
                         KeyEvent.KEYCODE_DPAD_DOWN -> {
-                            // 遙控器友好：上下鍵永遠先叫出控制列並把焦點交給按鈕。
-                            if (!uiState.areControlsVisible) {
-                                viewModel.setControlsVisible(true)
-                                true
-                            } else {
-                                false
+                            // 遙控器友好：控制列隱藏時，上下鍵叫出控制列並把焦點交給按鈕；
+                            // 控制列顯示時，上下鍵交給焦點圖（例如 play/pause ↑ 選集、↓ 時間軸）。
+                            when {
+                                controlsOnScreen && containerOwnsFocus -> focusPlayPause()
+                                overlayOnScreen -> false
+                                else -> {
+                                    viewModel.setControlsVisible(true)
+                                    true
+                                }
                             }
                         }
                         KeyEvent.KEYCODE_BACK -> {
@@ -570,8 +642,8 @@ fun PlayerScreen(
                 },
                 onToggleFavorite = { viewModel.toggleFavorite(context) },
                 onPlayPauseToggle = {
-                    seekAnchorMs = null
-                    lastSeekPressMs = 0L
+                    remoteSeek.reset()
+                    scrubSeek.reset()
                     if (exoPlayer.isPlaying) {
                         exoPlayer.pause()
                         viewModel.setPlaying(false)
@@ -580,49 +652,31 @@ fun PlayerScreen(
                         viewModel.setPlaying(true)
                     }
                 },
-                onRewind10 = {
-                    val nowMs = System.currentTimeMillis()
-                    val duration = exoPlayer.duration.coerceAtLeast(0L)
-                    val basePos = if (seekAnchorMs != null && nowMs - lastSeekPressMs < 2000L) {
-                        seekAnchorMs!!
-                    } else {
-                        exoPlayer.currentPosition
-                    }
-                    val newPos = (basePos - 10_000).coerceAtLeast(0L)
-                    seekAnchorMs = newPos
-                    lastSeekPressMs = nowMs
-                    exoPlayer.seekTo(newPos)
-                    viewModel.updatePlaybackPosition(newPos, exoPlayer.duration.coerceAtLeast(0L))
-                },
-                onForward10 = {
-                    val nowMs = System.currentTimeMillis()
-                    val duration = exoPlayer.duration.coerceAtLeast(0L)
-                    val basePos = if (seekAnchorMs != null && nowMs - lastSeekPressMs < 2000L) {
-                        seekAnchorMs!!
-                    } else {
-                        exoPlayer.currentPosition
-                    }
-                    val cap = if (duration > 0L) duration else basePos + 10_000
-                    val newPos = (basePos + 10_000).coerceAtMost(cap)
-                    seekAnchorMs = newPos
-                    lastSeekPressMs = nowMs
-                    exoPlayer.seekTo(newPos)
-                    viewModel.updatePlaybackPosition(newPos, exoPlayer.duration.coerceAtLeast(0L))
-                },
+                onRewind10 = { performSeek(remoteSeek, -1) },
+                onForward10 = { performSeek(remoteSeek, 1) },
                 onNextEpisode = {
                     viewModel.playNextEpisode()
                 },
+                onScrub = { direction -> performSeek(scrubSeek, direction) },
                 onSeek = { seekFraction ->
-                    seekAnchorMs = null
-                    lastSeekPressMs = 0L
+                    remoteSeek.reset()
+                    scrubSeek.reset()
                     val duration = exoPlayer.duration
                     // duration is -1/0 until the media is prepared; a seek based
                     // on it would jump to a nonsense position, so ignore scrubs
                     // until the player knows the real duration.
                     if (duration > 0L) {
+                        val oldPos = exoPlayer.currentPosition
                         val newPos = (seekFraction * duration).toLong().coerceIn(0L, duration)
                         exoPlayer.seekTo(newPos)
                         viewModel.updatePlaybackPosition(newPos, duration)
+                        seekHud = SeekHudState(
+                            direction = if (newPos >= oldPos) 1 else -1,
+                            deltaMs = newPos - oldPos,
+                            targetMs = newPos,
+                            durationMs = duration
+                        )
+                        seekHudTick++
                     }
                 },
                 onBackClick = onBackClick
@@ -659,6 +713,18 @@ fun PlayerScreen(
                 }
             )
         }
+
+        // Transient seek readout: reports the jump size and target time while
+        // fast-forwarding/rewinding, even when the control bar is hidden.
+        val hud = seekHud
+        if (hud != null) {
+            SeekHudOverlay(
+                direction = hud.direction,
+                deltaMs = hud.deltaMs,
+                targetMs = hud.targetMs,
+                durationMs = hud.durationMs
+            )
+        }
     }
 }
 
@@ -681,6 +747,8 @@ fun PlayerControlsOverlay(
     onCyclePlaybackSpeed: () -> Unit = {},
     onInteraction: () -> Unit = {},
     onToggleEpisodeList: () -> Unit = {},
+    // Fine scrubbing (LEFT/RIGHT) while the timeline itself holds focus.
+    onScrub: (Int) -> Unit = {},
     // Owned by PlayerScreen so its container can fall back onto it when the
     // overlay is focused as a whole.
     playPauseFocusRequester: FocusRequester = remember { FocusRequester() }
@@ -726,6 +794,8 @@ fun PlayerControlsOverlay(
     val rewindFocusRequester = remember { FocusRequester() }
     val forwardFocusRequester = remember { FocusRequester() }
     val nextEpisodeFocusRequester = remember { FocusRequester() }
+    val timelineFocusRequester = remember { FocusRequester() }
+    var timelineFocused by remember { mutableStateOf(false) }
 
     Box(
         modifier = modifier
@@ -955,6 +1025,7 @@ fun PlayerControlsOverlay(
                     .focusProperties {
                         right = playPauseFocusRequester
                         up = backFocusRequester
+                        down = timelineFocusRequester
                     },
                 shape = ClickableSurfaceDefaults.shape(shape = CircleShape),
                 colors = ClickableSurfaceDefaults.colors(
@@ -982,6 +1053,7 @@ fun PlayerControlsOverlay(
                         left = rewindFocusRequester
                         right = forwardFocusRequester
                         up = episodeListFocusRequester
+                        down = timelineFocusRequester
                     },
                 shape = ClickableSurfaceDefaults.shape(shape = CircleShape),
                 colors = ClickableSurfaceDefaults.colors(
@@ -1009,6 +1081,7 @@ fun PlayerControlsOverlay(
                         left = playPauseFocusRequester
                         right = if (hasNextEpisode) nextEpisodeFocusRequester else FocusRequester.Default
                         up = speedFocusRequester
+                        down = timelineFocusRequester
                     },
                 shape = ClickableSurfaceDefaults.shape(shape = CircleShape),
                 colors = ClickableSurfaceDefaults.colors(
@@ -1036,6 +1109,7 @@ fun PlayerControlsOverlay(
                         .focusProperties {
                             left = forwardFocusRequester
                             up = favoriteFocusRequester
+                            down = timelineFocusRequester
                         },
                     shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(24.dp)),
                     colors = ClickableSurfaceDefaults.colors(
@@ -1100,20 +1174,60 @@ fun PlayerControlsOverlay(
 
             Spacer(modifier = Modifier.height(4.dp))
 
-            Slider(
-                value = progressFraction,
-                onValueChange = { onSeek(it) },
-                colors = SliderDefaults.colors(
-                    thumbColor = TvAccent,
-                    activeTrackColor = TvAccent,
-                    inactiveTrackColor = TvPureWhite.copy(alpha = 0.25f)
-                ),
-                // 遙控器：進度條不可搶焦點（否則左右鍵被吃掉、按不到按鈕）。
-                // 快進/快退請用 -10s/+10s 按鈕或隱藏控制列時的左右鍵。
+            // The timeline is its own focus target: press DOWN from the centre
+            // row to reach it, then LEFT/RIGHT scrub finely (accelerating) while
+            // UP/DOWN go back. This gives precise remote seeking without stealing
+            // LEFT/RIGHT from button navigation.
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .focusProperties { canFocus = false }
-            )
+                    .testTag("timeline")
+                    .focusRequester(timelineFocusRequester)
+                    .onFocusChanged { timelineFocused = it.isFocused }
+                    .focusProperties {
+                        up = playPauseFocusRequester
+                        down = playPauseFocusRequester
+                    }
+                    .focusable()
+                    .onKeyEvent { keyEvent ->
+                        if (keyEvent.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
+                            when (keyEvent.nativeKeyEvent.keyCode) {
+                                KeyEvent.KEYCODE_DPAD_LEFT -> {
+                                    onInteraction()
+                                    onScrub(-1)
+                                    true
+                                }
+                                KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                                    onInteraction()
+                                    onScrub(1)
+                                    true
+                                }
+                                else -> false
+                            }
+                        } else false
+                    }
+                    .border(
+                        width = 2.dp,
+                        color = if (timelineFocused) TvAccent else Color.Transparent,
+                        shape = RoundedCornerShape(10.dp)
+                    )
+                    .padding(horizontal = 8.dp, vertical = 2.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Slider(
+                    value = progressFraction,
+                    onValueChange = { onSeek(it) },
+                    colors = SliderDefaults.colors(
+                        thumbColor = TvAccent,
+                        activeTrackColor = TvAccent,
+                        inactiveTrackColor = TvPureWhite.copy(alpha = 0.25f)
+                    ),
+                    // 遙控器：滑桿本身不搶焦點，左右鍵交由上面的容器轉成微調快轉／快退。
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .focusProperties { canFocus = false }
+                )
+            }
         }
     }
 }
@@ -1241,6 +1355,167 @@ private fun formatTimeMs(timeMs: Long): String {
         String.format(Locale.US, "%d:%02d:%02d", hours, minutes % 60, seconds)
     } else {
         String.format(Locale.US, "%02d:%02d", minutes, seconds)
+    }
+}
+
+/** Transient seek read-out shown while fast-forwarding / rewinding. */
+private data class SeekHudState(
+    val direction: Int,
+    val deltaMs: Long,
+    val targetMs: Long,
+    val durationMs: Long
+)
+
+/**
+ * Turns a burst of fast-forward / rewind presses into one accelerating seek.
+ *
+ * Two things matter here:
+ *  1. ExoPlayer's current position lags behind `seekTo()` for a beat, so naively
+ *     adding a fixed step to the *current* position makes a burst of presses
+ *     barely move. The position at the start of the burst (the anchor) is kept
+ *     and every step is added to it.
+ *  2. A held D-pad auto-repeats far faster than a human can tap, so the step is
+ *     driven by how long the burst has lasted rather than by the raw press
+ *     count, and presses faster than [MIN_PRESS_INTERVAL_MS] are folded
+ *     together. Tapping a few times gives precise 10s hops; holding ramps up.
+ */
+internal class FastSeekController(private val baseStepMs: Long) {
+    private var lastPressAtMs = 0L
+    private var burstStartMs = 0L
+    /** 0 means "no burst in progress". */
+    private var burstDirection = 0
+    private var anchorPosMs = 0L
+    private var accumulatedMs = 0L
+
+    /**
+     * Registers one fast-forward ([direction] > 0) / rewind ([direction] < 0)
+     * press.
+     *
+     * @return the target position (ms) and the signed accumulated delta (ms), or
+     *   null when this was an over-fast auto-repeat that should be ignored.
+     */
+    fun press(direction: Int, currentPosMs: Long, durationMs: Long, nowMs: Long): Pair<Long, Long>? {
+        // Fold key auto-repeat bursts (much faster than a human tap) together.
+        if (burstDirection != 0 && nowMs - lastPressAtMs < MIN_PRESS_INTERVAL_MS) {
+            return null
+        }
+
+        if (direction != burstDirection || nowMs - lastPressAtMs > SESSION_GAP_MS) {
+            burstDirection = direction
+            anchorPosMs = currentPosMs
+            accumulatedMs = 0L
+            burstStartMs = nowMs
+        }
+        lastPressAtMs = nowMs
+
+        accumulatedMs += direction * stepForBurstAge(nowMs - burstStartMs)
+        var target = anchorPosMs + accumulatedMs
+        target = if (durationMs > 0L) target.coerceIn(0L, durationMs) else target.coerceAtLeast(0L)
+        // Keep the accumulator in sync with the clamped target so hitting either
+        // end does not build up a bogus delta that later "jumps".
+        accumulatedMs = target - anchorPosMs
+        return target to accumulatedMs
+    }
+
+    fun reset() {
+        lastPressAtMs = 0L
+        burstStartMs = 0L
+        burstDirection = 0
+        anchorPosMs = 0L
+        accumulatedMs = 0L
+    }
+
+    /** The longer a single burst runs, the bigger each further step becomes. */
+    private fun stepForBurstAge(ageMs: Long): Long = when {
+        ageMs < 400L -> baseStepMs
+        ageMs < 900L -> baseStepMs * 2
+        ageMs < 1_600L -> baseStepMs * 3
+        ageMs < 2_600L -> baseStepMs * 5
+        else -> baseStepMs * 6
+    }
+
+    private companion object {
+        /** Presses closer together than this are key auto-repeat, not intent. */
+        const val MIN_PRESS_INTERVAL_MS = 130L
+        /** A pause longer than this starts a fresh burst/anchor. */
+        const val SESSION_GAP_MS = 1_200L
+    }
+}
+
+/**
+ * Heads-up display for fast-forward / rewind: shows how far the current burst
+ * has jumped, where it is heading and a progress bar, so the user always gets
+ * feedback even though the control bar is hidden during a scrub.
+ */
+@Composable
+private fun SeekHudOverlay(direction: Int, deltaMs: Long, targetMs: Long, durationMs: Long) {
+    val fraction = if (durationMs > 0L) {
+        (targetMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
+    } else 0f
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(bottom = 132.dp),
+        contentAlignment = Alignment.BottomCenter
+    ) {
+        Box(
+            modifier = Modifier
+                .background(TvCardBackground.copy(alpha = 0.94f), RoundedCornerShape(18.dp))
+                .border(1.dp, TvCardBorder, RoundedCornerShape(18.dp))
+        ) {
+            Column(
+                modifier = Modifier.padding(horizontal = 26.dp, vertical = 14.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = if (direction >= 0) Icons.Rounded.FastForward else Icons.Rounded.FastRewind,
+                        contentDescription = if (direction >= 0) "快進" else "快退",
+                        tint = TvAccent,
+                        modifier = Modifier.size(30.dp)
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Text(
+                        text = formatSeekAmount(deltaMs),
+                        color = TvPureWhite,
+                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
+                    )
+                }
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "${formatTimeMs(targetMs)} / ${formatTimeMs(durationMs)}",
+                    color = TvPureWhite.copy(alpha = 0.85f),
+                    style = MaterialTheme.typography.labelMedium
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+                Box(
+                    modifier = Modifier
+                        .width(220.dp)
+                        .height(4.dp)
+                        .background(TvPureWhite.copy(alpha = 0.20f), RoundedCornerShape(2.dp))
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(fraction)
+                            .fillMaxHeight()
+                            .background(TvAccent, RoundedCornerShape(2.dp))
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** Renders a signed seek delta in 繁體中文, e.g. 30 秒 / 1 分 30 秒. */
+private fun formatSeekAmount(deltaMs: Long): String {
+    val totalSeconds = (kotlin.math.abs(deltaMs) / 1000L).toInt()
+    val minutes = totalSeconds / 60
+    val seconds = totalSeconds % 60
+    return when {
+        minutes > 0 && seconds > 0 -> "$minutes 分 $seconds 秒"
+        minutes > 0 -> "$minutes 分"
+        else -> "$seconds 秒"
     }
 }
 

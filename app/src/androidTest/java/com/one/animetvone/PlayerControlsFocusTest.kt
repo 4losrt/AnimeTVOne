@@ -20,6 +20,7 @@ import androidx.compose.ui.test.junit4.ComposeContentTestRule
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performKeyInput
@@ -31,6 +32,7 @@ import com.one.animetvone.ui.player.EpisodeListOverlay
 import com.one.animetvone.ui.player.PlayerControlsOverlay
 import com.one.animetvone.ui.player.PlayerUiState
 import com.one.animetvone.ui.theme.AnimetvoneTheme
+import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -205,6 +207,49 @@ class PlayerControlsFocusTest {
         // ...and from there the rest of the graph still works.
         rule.press(Key.DirectionUp)
         rule.onNodeWithText("選集 (2)").assertIsFocused()
+    }
+
+    @Test
+    fun timelineIsReachableAndScrubsWithDpad() {
+        val scrubs = mutableListOf<Int>()
+        rule.setContent {
+            val playPause = remember { FocusRequester() }
+            LaunchedEffect(Unit) {
+                withFrameNanos { }
+                runCatching { playPause.requestFocus() }
+            }
+            AnimetvoneTheme {
+                PlayerControlsOverlay(
+                    uiState = state(),
+                    hasNextEpisode = true,
+                    onPlayPauseToggle = {},
+                    onRewind10 = {},
+                    onForward10 = {},
+                    onNextEpisode = {},
+                    onSeek = {},
+                    onBackClick = {},
+                    onScrub = { scrubs.add(it) },
+                    playPauseFocusRequester = playPause
+                )
+            }
+        }
+
+        rule.onNodeWithContentDescription("Pause").assertIsFocused()
+
+        // DOWN from the centre row lands on the timeline (fine-scrub target).
+        rule.press(Key.DirectionDown)
+        rule.onNodeWithTag("timeline").assertIsFocused()
+
+        // LEFT/RIGHT scrub finely instead of moving focus, and focus stays put
+        // so repeated presses keep seeking.
+        rule.press(Key.DirectionLeft)
+        rule.press(Key.DirectionRight)
+        rule.onNodeWithTag("timeline").assertIsFocused()
+        assertEquals(listOf(-1, 1), scrubs)
+
+        // UP returns to the play/pause button.
+        rule.press(Key.DirectionUp)
+        rule.onNodeWithContentDescription("Pause").assertIsFocused()
     }
 
     @Test

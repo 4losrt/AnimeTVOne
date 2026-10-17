@@ -13,8 +13,8 @@ android {
         applicationId = "com.one.animetvone"
         minSdk = 25
         targetSdk = 37
-        versionCode = 10
-        versionName = "1.3.5"
+        versionCode = 12
+        versionName = "1.3.7"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
