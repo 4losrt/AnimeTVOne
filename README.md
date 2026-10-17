@@ -51,7 +51,7 @@ Grab the APK from the [latest release](https://github.com/4losrt/AnimeTVOne/rele
 ```bash
 # Fire TV / Android TV: enable Developer Options → ADB debugging first
 adb connect <tv-ip>:5555
-adb install -r AnimeTVOne-v1.3.3.apk
+adb install -r AnimeTVOne-v1.3.4.apk
 ```
 
 Or use any Fire TV sideloading tool (e.g. Downloader) and open the APK.

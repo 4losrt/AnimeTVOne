@@ -43,6 +43,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -115,6 +116,9 @@ fun PlayerScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
     val focusRequester = remember { FocusRequester() }
+    // Shared with the overlay so the container can hand focus back to the
+    // play/pause button (and fall back onto it if it is focused itself).
+    val playPauseFocusRequester = remember { FocusRequester() }
 
     val playbackSpeed = uiState.playbackSpeed
     val resizeMode = uiState.resizeMode
@@ -199,7 +203,11 @@ fun PlayerScreen(
             exoPlayer.prepare()
 
             val history = HistoryManager.getHistoryList(context)
-            val savedHistory = history.find { it.episodeId == episodeId }
+            // Use the ViewModel's current episode id (not the route parameter):
+            // the user can switch episodes from the in-player picker without the
+            // route changing, and resume must follow the episode actually playing.
+            val activeEpisodeId = uiState.episodeId ?: episodeId
+            val savedHistory = history.find { it.episodeId == activeEpisodeId }
             if (savedHistory != null && savedHistory.playbackPositionMs > 5000L) {
                 exoPlayer.seekTo(savedHistory.playbackPositionMs)
             }
@@ -309,8 +317,24 @@ fun PlayerScreen(
         }
     }
 
-    LaunchedEffect(Unit) {
-        focusRequester.requestFocus()
+    // The overlay is on screen only when the user asked for it, the stream is
+    // ready and no error dialog is up. Used both to render it and to decide
+    // where focus should live.
+    val controlsOverlayVisible = uiState.areControlsVisible && !uiState.isLoading &&
+        uiState.errorMessage == null && !uiState.isEpisodeListVisible
+
+    // Focus management:
+    //  - while the controls are on screen, park focus on the play/pause button
+    //    (the overlay attaches its requester right after the next frame);
+    //  - when they are hidden, park focus on the container so the D-pad keys
+    //    still reach the onKeyEvent handler (seek / show controls).
+    LaunchedEffect(controlsOverlayVisible, uiState.isEpisodeListVisible) {
+        if (controlsOverlayVisible) {
+            withFrameNanos { }
+            runCatching { playPauseFocusRequester.requestFocus() }
+        } else if (!uiState.isEpisodeListVisible) {
+            runCatching { focusRequester.requestFocus() }
+        }
     }
 
     // Keep the system bars hidden while playing so the video gets the whole
@@ -349,10 +373,29 @@ fun PlayerScreen(
             .fillMaxSize()
             .background(Color.Black)
             .focusRequester(focusRequester)
+            .focusProperties {
+                // Safety net: if the container itself is focused while the
+                // controls are visible, send the D-pad to the play/pause button
+                // instead of leaving focus stuck on the full-screen node.
+                // (focusProperties must precede focusable to attach to it.)
+                if (uiState.areControlsVisible) {
+                    up = playPauseFocusRequester
+                    down = playPauseFocusRequester
+                    left = playPauseFocusRequester
+                    right = playPauseFocusRequester
+                }
+            }
             .focusable()
             .onKeyEvent { keyEvent ->
                 if (keyEvent.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
                     val keyCode = keyEvent.nativeKeyEvent.keyCode
+                    // Any remote input while the controls are on screen restarts
+                    // the auto-hide countdown, so they never vanish mid-navigation
+                    // (previously only button clicks reset it, so a slow D-pad
+                    //  navigation could hide the controls before reaching a button).
+                    if (uiState.areControlsVisible) {
+                        viewModel.notifyControlsInteraction()
+                    }
                     when (keyCode) {
                         KeyEvent.KEYCODE_DPAD_CENTER,
                         KeyEvent.KEYCODE_ENTER,
@@ -504,8 +547,7 @@ fun PlayerScreen(
         }
 
         AnimatedVisibility(
-            visible = uiState.areControlsVisible && !uiState.isLoading &&
-                uiState.errorMessage == null && !uiState.isEpisodeListVisible,
+            visible = controlsOverlayVisible,
             enter = fadeIn(),
             exit = fadeOut(),
             modifier = Modifier.fillMaxSize()
@@ -592,7 +634,8 @@ fun PlayerScreen(
                     exoPlayer.setPlaybackSpeed(newSpeed)
                 },
                 onInteraction = { viewModel.notifyControlsInteraction() },
-                onToggleEpisodeList = { viewModel.toggleEpisodeList() }
+                onToggleEpisodeList = { viewModel.toggleEpisodeList() },
+                playPauseFocusRequester = playPauseFocusRequester
             )
         }
 
@@ -633,7 +676,10 @@ fun PlayerControlsOverlay(
     ,playbackSpeed: Float = 1.0f,
     onCyclePlaybackSpeed: () -> Unit = {},
     onInteraction: () -> Unit = {},
-    onToggleEpisodeList: () -> Unit = {}
+    onToggleEpisodeList: () -> Unit = {},
+    // Owned by PlayerScreen so its container can fall back onto it when the
+    // overlay is focused as a whole.
+    playPauseFocusRequester: FocusRequester = remember { FocusRequester() }
 ) {
     val displayAnimeTitle = remember(uiState.currentAnime?.title) {
         ChineseConverter.toTraditionalChinese(uiState.currentAnime?.title)
@@ -663,6 +709,20 @@ fun PlayerControlsOverlay(
         if (q.isBlank() || q.equals("auto", ignoreCase = true)) "高清" else q
     }
 
+    // Explicit D-pad focus graph.
+    // The centred play/pause button has no vertically-overlapping neighbour, so
+    // Compose's default directional search cannot reach the top bar (or the
+    // bottom of the screen) from it. Wiring every neighbour by hand guarantees
+    // that all controls are reachable on a remote.
+    val backFocusRequester = remember { FocusRequester() }
+    val episodeListFocusRequester = remember { FocusRequester() }
+    val speedFocusRequester = remember { FocusRequester() }
+    val favoriteFocusRequester = remember { FocusRequester() }
+    val resizeFocusRequester = remember { FocusRequester() }
+    val rewindFocusRequester = remember { FocusRequester() }
+    val forwardFocusRequester = remember { FocusRequester() }
+    val nextEpisodeFocusRequester = remember { FocusRequester() }
+
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -686,6 +746,12 @@ fun PlayerControlsOverlay(
         ) {
             OutlinedButton(
                 onClick = { onInteraction(); onBackClick() },
+                modifier = Modifier
+                    .focusRequester(backFocusRequester)
+                    .focusProperties {
+                        down = playPauseFocusRequester
+                        right = episodeListFocusRequester
+                    },
                 colors = OutlinedButtonDefaults.colors(
                     contentColor = TvPureWhite,
                     focusedContainerColor = TvCardFocusHighlight,
@@ -756,6 +822,13 @@ fun PlayerControlsOverlay(
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedButton(
                     onClick = { onInteraction(); onToggleEpisodeList() },
+                    modifier = Modifier
+                        .focusRequester(episodeListFocusRequester)
+                        .focusProperties {
+                            down = playPauseFocusRequester
+                            left = backFocusRequester
+                            right = speedFocusRequester
+                        },
                     colors = OutlinedButtonDefaults.colors(
                         contentColor = TvPureWhite,
                         focusedContainerColor = TvCardFocusHighlight,
@@ -775,6 +848,13 @@ fun PlayerControlsOverlay(
 
                 OutlinedButton(
                     onClick = { onInteraction(); onCyclePlaybackSpeed() },
+                    modifier = Modifier
+                        .focusRequester(speedFocusRequester)
+                        .focusProperties {
+                            down = playPauseFocusRequester
+                            left = episodeListFocusRequester
+                            right = favoriteFocusRequester
+                        },
                     colors = OutlinedButtonDefaults.colors(
                         contentColor = TvPureWhite,
                         focusedContainerColor = TvCardFocusHighlight,
@@ -792,6 +872,13 @@ fun PlayerControlsOverlay(
                 // Favorite Button in Player Overlay
                 OutlinedButton(
                     onClick = { onInteraction(); onToggleFavorite() },
+                    modifier = Modifier
+                        .focusRequester(favoriteFocusRequester)
+                        .focusProperties {
+                            down = playPauseFocusRequester
+                            left = speedFocusRequester
+                            right = resizeFocusRequester
+                        },
                     colors = OutlinedButtonDefaults.colors(
                         contentColor = TvPureWhite,
                         focusedContainerColor = TvCardFocusHighlight,
@@ -822,6 +909,12 @@ fun PlayerControlsOverlay(
                 // Aspect Ratio Toggle Button
                 OutlinedButton(
                     onClick = { onInteraction(); onToggleResizeMode() },
+                    modifier = Modifier
+                        .focusRequester(resizeFocusRequester)
+                        .focusProperties {
+                            down = playPauseFocusRequester
+                            left = favoriteFocusRequester
+                        },
                     colors = OutlinedButtonDefaults.colors(
                         contentColor = TvPureWhite,
                         focusedContainerColor = TvCardFocusHighlight,
@@ -842,13 +935,9 @@ fun PlayerControlsOverlay(
             }
         }
 
-        // Center D-Pad Action Controls
-        // 遙控器：打開控制列自動聚焦播放/暫停，左右切換快退/快進/下一集，
-        // 上=返回列，下=快進列，保證任何按鈕都按得到。
-        val playPauseRequester = remember { FocusRequester() }
-        LaunchedEffect(Unit) {
-            try { playPauseRequester.requestFocus() } catch (_: Exception) { }
-        }
+        // Center D-Pad Action Controls. Focus neighbours are wired explicitly
+        // (see the requesters above) because the centred button has no vertical
+        // overlap with the top bar.
         Row(
             modifier = Modifier.align(Alignment.Center),
             horizontalArrangement = Arrangement.spacedBy(20.dp),
@@ -856,7 +945,13 @@ fun PlayerControlsOverlay(
         ) {
             Surface(
                 onClick = { onInteraction(); onRewind10() },
-                modifier = Modifier.size(48.dp),
+                modifier = Modifier
+                    .size(48.dp)
+                    .focusRequester(rewindFocusRequester)
+                    .focusProperties {
+                        right = playPauseFocusRequester
+                        up = backFocusRequester
+                    },
                 shape = ClickableSurfaceDefaults.shape(shape = CircleShape),
                 colors = ClickableSurfaceDefaults.colors(
                     containerColor = TvCardBackground,
@@ -878,7 +973,12 @@ fun PlayerControlsOverlay(
                 onClick = { onInteraction(); onPlayPauseToggle() },
                 modifier = Modifier
                     .size(68.dp)
-                    .focusRequester(playPauseRequester),
+                    .focusRequester(playPauseFocusRequester)
+                    .focusProperties {
+                        left = rewindFocusRequester
+                        right = forwardFocusRequester
+                        up = episodeListFocusRequester
+                    },
                 shape = ClickableSurfaceDefaults.shape(shape = CircleShape),
                 colors = ClickableSurfaceDefaults.colors(
                     containerColor = TvAccent,
@@ -898,7 +998,14 @@ fun PlayerControlsOverlay(
 
             Surface(
                 onClick = { onInteraction(); onForward10() },
-                modifier = Modifier.size(48.dp),
+                modifier = Modifier
+                    .size(48.dp)
+                    .focusRequester(forwardFocusRequester)
+                    .focusProperties {
+                        left = playPauseFocusRequester
+                        right = if (hasNextEpisode) nextEpisodeFocusRequester else FocusRequester.Default
+                        up = speedFocusRequester
+                    },
                 shape = ClickableSurfaceDefaults.shape(shape = CircleShape),
                 colors = ClickableSurfaceDefaults.colors(
                     containerColor = TvCardBackground,
@@ -919,7 +1026,13 @@ fun PlayerControlsOverlay(
             if (hasNextEpisode) {
                 Surface(
                     onClick = { onInteraction(); onNextEpisode() },
-                    modifier = Modifier.height(48.dp),
+                    modifier = Modifier
+                        .height(48.dp)
+                        .focusRequester(nextEpisodeFocusRequester)
+                        .focusProperties {
+                            left = forwardFocusRequester
+                            up = favoriteFocusRequester
+                        },
                     shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(24.dp)),
                     colors = ClickableSurfaceDefaults.colors(
                         containerColor = TvCardBackground,
