@@ -5,16 +5,20 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.withFrameNanos
+import androidx.activity.ComponentActivity
 import androidx.compose.foundation.focusable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.junit4.ComposeContentTestRule
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
@@ -23,6 +27,7 @@ import androidx.compose.ui.test.pressKey
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.one.animetvone.data.model.Anime
 import com.one.animetvone.data.model.Episode
+import com.one.animetvone.ui.player.EpisodeListOverlay
 import com.one.animetvone.ui.player.PlayerControlsOverlay
 import com.one.animetvone.ui.player.PlayerUiState
 import com.one.animetvone.ui.theme.AnimetvoneTheme
@@ -43,7 +48,7 @@ import org.junit.runner.RunWith
 class PlayerControlsFocusTest {
 
     @get:Rule
-    val rule = createComposeRule()
+    val rule = createAndroidComposeRule<ComponentActivity>()
 
     private val ep1 = Episode(
         id = "1_ep_1_token_ep1",
@@ -200,5 +205,45 @@ class PlayerControlsFocusTest {
         // ...and from there the rest of the graph still works.
         rule.press(Key.DirectionUp)
         rule.onNodeWithText("選集 (2)").assertIsFocused()
+    }
+
+    @Test
+    fun episodePickerFocusesCurrentEpisodeAndScrolls() {
+        val episodes = (1..8).map {
+            Episode(
+                id = "1_ep_${it}_token_ep$it",
+                animeId = "1",
+                episodeNumber = it,
+                title = "標題 $it",
+                thumbnailUrl = "",
+                duration = "24:00",
+                streamUrl = ""
+            )
+        }
+        rule.setContent {
+            AnimetvoneTheme {
+                EpisodeListOverlay(
+                    episodes = episodes,
+                    currentEpisodeId = "1_ep_5_token_ep5",
+                    onSelect = {}
+                )
+            }
+        }
+
+        // Opening lands on the episode that is currently playing. The overlay
+        // scrolls to the item and requests focus once the scroll has settled,
+        // so wait for the focus to actually land before asserting.
+        rule.waitUntil(timeoutMillis = 5_000) {
+            rule.onAllNodesWithText("第 5 集").fetchSemanticsNodes().any {
+                it.config.getOrNull(SemanticsProperties.Focused) == true
+            }
+        }
+        rule.onNodeWithText("第 5 集").assertIsFocused()
+
+        // D-pad can move to a neighbour in the list.
+        rule.press(Key.DirectionDown)
+        rule.onNodeWithText("第 6 集").assertIsFocused()
+        rule.press(Key.DirectionUp)
+        rule.onNodeWithText("第 5 集").assertIsFocused()
     }
 }

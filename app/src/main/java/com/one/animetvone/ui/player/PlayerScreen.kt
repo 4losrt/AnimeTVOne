@@ -264,9 +264,13 @@ fun PlayerScreen(
     LaunchedEffect(
         uiState.areControlsVisible,
         uiState.controlsInteractionCount,
-        uiState.isEpisodeListVisible
+        uiState.isEpisodeListVisible,
+        uiState.isPlaying
     ) {
-        if (uiState.areControlsVisible && !uiState.isEpisodeListVisible) {
+        // Keep the controls while the video is paused or has ended (so the user
+        // can still see where they are), and only auto-hide during playback.
+        // Any remote input restarts the countdown.
+        if (uiState.areControlsVisible && !uiState.isEpisodeListVisible && uiState.isPlaying) {
             delay(4000)
             viewModel.setControlsVisible(false)
         }
@@ -447,7 +451,7 @@ fun PlayerScreen(
                                 seekAnchorMs = newPos
                                 lastSeekPressMs = nowMs
                                 exoPlayer.seekTo(newPos)
-                                viewModel.updatePlaybackPosition(newPos, exoPlayer.duration)
+                                viewModel.updatePlaybackPosition(newPos, exoPlayer.duration.coerceAtLeast(0L))
                                 viewModel.setControlsVisible(true)
                                 true
                             }
@@ -468,7 +472,7 @@ fun PlayerScreen(
                                 seekAnchorMs = newPos
                                 lastSeekPressMs = nowMs
                                 exoPlayer.seekTo(newPos.coerceAtMost(if (dur > 0) dur else basePos + 10_000))
-                                viewModel.updatePlaybackPosition(newPos, exoPlayer.duration)
+                                viewModel.updatePlaybackPosition(newPos, exoPlayer.duration.coerceAtLeast(0L))
                                 viewModel.setControlsVisible(true)
                                 true
                             }
@@ -588,7 +592,7 @@ fun PlayerScreen(
                     seekAnchorMs = newPos
                     lastSeekPressMs = nowMs
                     exoPlayer.seekTo(newPos)
-                    viewModel.updatePlaybackPosition(newPos, exoPlayer.duration)
+                    viewModel.updatePlaybackPosition(newPos, exoPlayer.duration.coerceAtLeast(0L))
                 },
                 onForward10 = {
                     val nowMs = System.currentTimeMillis()
@@ -603,7 +607,7 @@ fun PlayerScreen(
                     seekAnchorMs = newPos
                     lastSeekPressMs = nowMs
                     exoPlayer.seekTo(newPos)
-                    viewModel.updatePlaybackPosition(newPos, exoPlayer.duration)
+                    viewModel.updatePlaybackPosition(newPos, exoPlayer.duration.coerceAtLeast(0L))
                 },
                 onNextEpisode = {
                     viewModel.playNextEpisode()
@@ -1130,16 +1134,19 @@ fun EpisodeListOverlay(
         episodes.indexOfFirst { it.id == currentEpisodeId }
     }
     val currentItemRequester = remember { FocusRequester() }
+    val listFocusRequester = remember { FocusRequester() }
 
     LaunchedEffect(episodes.size, currentEpisodeId) {
         if (currentIndex >= 0) {
             listState.scrollToItem((currentIndex - 3).coerceAtLeast(0))
         }
         // Wait for the target item to be composed, then move focus onto it.
+        // If the current episode isn't in the list (e.g. still loading), fall
+        // back to focusing the list itself so the D-pad still works.
         delay(80)
-        try {
-            currentItemRequester.requestFocus()
-        } catch (_: Exception) {
+        runCatching {
+            if (currentIndex >= 0) currentItemRequester.requestFocus()
+            else listFocusRequester.requestFocus()
         }
     }
 
@@ -1169,7 +1176,9 @@ fun EpisodeListOverlay(
             LazyColumn(
                 state = listState,
                 verticalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxSize()
+                modifier = Modifier
+                    .fillMaxSize()
+                    .focusRequester(listFocusRequester)
             ) {
                 items(episodes, key = { it.id }) { ep ->
                     val isCurrent = ep.id == currentEpisodeId
