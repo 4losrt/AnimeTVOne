@@ -76,6 +76,29 @@ class AnimeListDiskCacheTest {
     }
 
     @Test
+    fun `loadFromDisk repairs episode counts stored by builds with the range bug`() {
+        // Exactly what an older build wrote: "1-12" had been stored as 1 episode.
+        val legacyFile = tempFolder.newFile("legacy_anime_cache.json")
+        legacyFile.writeText(
+            """
+            [
+              {"id":"201","title":"Range Show","coverUrl":"","bannerUrl":"","description":"","rating":0.0,"year":2026,"status":"1-12","episodeCount":1,"follow":false,"progress":0,"genres":[]},
+              {"id":"202","title":"Ongoing Show","coverUrl":"","bannerUrl":"","description":"","rating":0.0,"year":2026,"status":"連載中(3)","episodeCount":3,"follow":false,"progress":0,"genres":[]}
+            ]
+            """.trimIndent()
+        )
+
+        AnimeListDiskCache.clearCache()
+        AnimeListDiskCache.setCacheFile(legacyFile)
+
+        val loaded = AnimeListDiskCache.loadFromDisk().associateBy { it.id }
+
+        assertEquals(12, loaded.getValue("201").episodeCount)
+        // Already-correct counts are left alone.
+        assertEquals(3, loaded.getValue("202").episodeCount)
+    }
+
+    @Test
     fun `AnimeRepositoryImpl loads disk cache instantly and merges background sync preserving state`() = runTest {
         val initialCachedAnime = listOf(
             Anime(

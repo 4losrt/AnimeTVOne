@@ -461,27 +461,45 @@ object Anime1Parser {
         return formatted.trimEnd(';', ' ')
     }
 
-    fun extractEpisodeNumber(title: String): Int? {
-        if (title.isBlank()) return null
+    /**
+     * Episode total from the status string animelist.json carries.
+     *
+     * Those strings are ranges, not counts: "1-12", "13-24", "1-25",
+     * "1-12+OVA", "連載中(41)", "劇場版". Taking the first number read "1-12" as
+     * one episode (every show displayed "全 1 集"), so the total is the LARGEST
+     * number present: 12, 24, 25, 12, 41, none.
+     */
+    fun episodeCountFromStatus(status: String): Int {
+        if (status.isBlank()) return 0
+        return EPISODE_COUNT_PATTERN.findAll(status)
+            .mapNotNull { it.value.toIntOrNull() }
+            .maxOrNull() ?: 0
+    }
+
+    fun extractEpisodeNumber(title: String): Int? {        if (title.isBlank()) return null
 
         val bracketMatch = EP_BRACKET_PATTERN.find(title)
         if (bracketMatch != null) {
-            bracketMatch.groupValues[1].toIntOrNull()?.let { return it }
+            bracketMatch.groupValues[1].toIntOrNull()?.takeIf { it in 1..9999 }?.let { return it }
         }
 
         val chMatch = EP_HUA_PATTERN.find(title)
         if (chMatch != null) {
-            chMatch.groupValues[1].toIntOrNull()?.let { return it }
+            chMatch.groupValues[1].toIntOrNull()?.takeIf { it in 1..9999 }?.let { return it }
         }
 
         val epMatch = EP_EN_PATTERN.find(title)
         if (epMatch != null) {
-            epMatch.groupValues[1].toIntOrNull()?.let { return it }
+            epMatch.groupValues[1].toIntOrNull()?.takeIf { it in 1..9999 }?.let { return it }
         }
 
         val numMatch = EP_NUMBER_PATTERN.find(title)
         if (numMatch != null) {
-            numMatch.groupValues[1].toIntOrNull()?.let { return it }
+            // Last resort, with no episode marker to trust. A bare 4-digit
+            // number is almost always a year ("鬼滅之刃 2023"), and returning it
+            // gave every episode of such a show the same number — which both
+            // mislabelled them and made them collapse into one history entry.
+            numMatch.groupValues[1].toIntOrNull()?.takeIf { it in 1..999 }?.let { return it }
         }
 
         return null
@@ -494,4 +512,5 @@ object Anime1Parser {
     private val EP_HUA_PATTERN = Regex("""第\s*(\d+)\s*[話集]""")
     private val EP_EN_PATTERN = Regex("""(?:EP|Ep|ep)\.?\s*(\d+)""")
     private val EP_NUMBER_PATTERN = Regex("""\b(\d+)\b""")
+    private val EPISODE_COUNT_PATTERN = Regex("""\d+""")
 }

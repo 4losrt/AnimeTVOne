@@ -315,6 +315,11 @@ class AnimeRepositoryImpl(
 
                     episodeMapCache[animeId] = episodes
                     resultEpisodes = episodes
+
+                    // The status string is only a hint: its range can be wider
+                    // than what is actually published (or narrower). Now that
+                    // the real list is in hand, publish the accurate total.
+                    publishEpisodeCount(animeId, episodes.size, parentAnime)
                 }
             }
         } catch (e: Exception) {
@@ -606,13 +611,39 @@ class AnimeRepositoryImpl(
         return YEAR_PATTERN.find(rawYear)?.value?.toIntOrNull()
     }
 
+    /**
+     * Episode total from the status string animelist.json carries. The parsing
+     * lives in [Anime1Parser.episodeCountFromStatus] because the disk cache
+     * repairs counts stored by older builds with the same rule.
+     */
     private fun extractEpisodeCount(status: String): Int? {
-        return COUNT_PATTERN.find(status)?.value?.toIntOrNull()
+        val count = Anime1Parser.episodeCountFromStatus(status)
+        return if (count > 0) count else null
+    }
+
+    /**
+     * Raises the cached episode total for [animeId] to [count] when the scraped
+     * list is longer than the status string suggested, so list cards and the
+     * detail header stop under-reporting the episode count.
+     */
+    private fun publishEpisodeCount(animeId: String, count: Int, fallback: Anime?) {
+        if (count <= 0) return
+        val current = animeMapCache[animeId] ?: fallback ?: return
+        if (current.episodeCount >= count) return
+
+        val updated = current.copy(episodeCount = count)
+        animeMapCache[animeId] = updated
+
+        val list = _animeListState.value
+        if (list.any { it.id == animeId }) {
+            val updatedList = list.map { if (it.id == animeId) updated else it }
+            _animeListState.value = updatedList
+            AnimeListDiskCache.saveToDisk(updatedList)
+        }
     }
 
     private companion object {
         val SEASON_CHARS = setOf("春", "夏", "秋", "冬")
         val YEAR_PATTERN = Regex("""\d{4}""")
-        val COUNT_PATTERN = Regex("""\d+""")
     }
 }

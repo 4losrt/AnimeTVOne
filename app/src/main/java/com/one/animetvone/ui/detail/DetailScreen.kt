@@ -71,6 +71,7 @@ import com.one.animetvone.data.model.Episode
 import com.one.animetvone.data.model.HistoryItem
 import com.one.animetvone.data.repository.SampleAnimeData
 import com.one.animetvone.data.source.CoverImageFetcher
+import com.one.animetvone.data.source.HistoryManager
 import com.one.animetvone.ui.components.DarkTitlePosterCard
 import com.one.animetvone.ui.components.TvErrorView
 import com.one.animetvone.ui.components.TvLoadingView
@@ -145,6 +146,19 @@ fun DetailContent(
 ) {
     val context = LocalContext.current
     val historyMap = remember(historyItems) { historyItems.associateBy { it.episodeId } }
+    // A history record can carry an older episode-id shape (the stream token is
+    // not always part of the id), so also index by anime + episode number.
+    val historyByEpisodeNumber = remember(historyItems) {
+        historyItems.associateBy { item ->
+            val number = item.episodeNumber.takeIf { it > 0 }
+                ?: HistoryManager.episodeNumberFromId(item.episodeId)
+            "${item.animeId}#$number"
+        }
+    }
+    val historyFor: (Episode) -> HistoryItem? = { episode ->
+        historyMap[episode.id]
+            ?: historyByEpisodeNumber["${episode.animeId}#${episode.episodeNumber}"]
+    }
 
     val lastWatchedHistory = remember(historyItems, anime.id) {
         historyItems.filter { it.animeId == anime.id }
@@ -153,7 +167,10 @@ fun DetailContent(
 
     val (playButtonText, targetEpisode) = remember(lastWatchedHistory, episodes) {
         if (lastWatchedHistory != null) {
+            val savedNumber = lastWatchedHistory.episodeNumber.takeIf { it > 0 }
+                ?: HistoryManager.episodeNumberFromId(lastWatchedHistory.episodeId)
             val matchedEp = episodes.find { it.id == lastWatchedHistory.episodeId }
+                ?: episodes.find { savedNumber > 0 && it.episodeNumber == savedNumber }
             if (matchedEp != null) {
                 "繼續播放（第 ${matchedEp.episodeNumber} 集）" to matchedEp
             } else {
@@ -586,7 +603,7 @@ fun DetailContent(
                         items = displayedEpisodes,
                         key = { it.id }
                     ) { episode ->
-                        val history = historyMap[episode.id]
+                        val history = historyFor(episode)
                         EpisodeCard(
                             episode = episode,
                             animeCoverUrl = anime.coverUrl,

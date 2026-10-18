@@ -262,4 +262,20 @@ class Anime1ParserTest {
         assertTrue("Friday cell", scheduleMap["星期五"]!!.any { it.id == 1915 })
         assertTrue("Saturday cell", scheduleMap["星期六"]!!.any { it.id == 1921 })
     }
+
+    @Test
+    fun `extractEpisodeNumber prefers markers and rejects bare years`() {
+        // Explicit markers stay trustworthy, including 4-digit episode numbers.
+        assertEquals(1, Anime1Parser.extractEpisodeNumber("咒術迴戰 [01]"))
+        assertEquals(12, Anime1Parser.extractEpisodeNumber("間諜家家酒 第 12 話"))
+        assertEquals(1024, Anime1Parser.extractEpisodeNumber("ONE PIECE 第 1024 話"))
+        assertEquals(3, Anime1Parser.extractEpisodeNumber("Cyberpunk Edgerunners EP 3"))
+
+        // No marker at all: a 4-digit number is a year, not an episode number.
+        assertEquals(null, Anime1Parser.extractEpisodeNumber("鬼滅之刃 2023"))
+        assertEquals(null, Anime1Parser.extractEpisodeNumber("劇場版 2021"))
+
+        // Small bare numbers are still usable as a last resort.
+        assertEquals(7, Anime1Parser.extractEpisodeNumber("某動畫 07"))
+    }
 }

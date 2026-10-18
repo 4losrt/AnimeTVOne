@@ -67,7 +67,13 @@ object AnimeListDiskCache {
             }
         }
 
-        val parsedList = parseAnimeListJson(jsonString)
+        val parsedList = parseAnimeListJson(jsonString).map { anime ->
+            // Caches written before the range fix stored "1-12" as 1 episode.
+            // The raw status is persisted next to it, so repair the count on
+            // read instead of discarding the whole cache.
+            val fromStatus = Anime1Parser.episodeCountFromStatus(anime.status)
+            if (fromStatus > anime.episodeCount) anime.copy(episodeCount = fromStatus) else anime
+        }
         if (parsedList.isNotEmpty()) {
             memoryCache = parsedList
         }

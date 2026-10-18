@@ -72,6 +72,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.net.toUri
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.media3.common.MimeTypes
@@ -164,6 +167,47 @@ fun PlayerScreen(
             }
     }
 
+    // The episode whose media source the player currently holds. All position
+    // polling and history writes are gated on this id: while the next episode's
+    // stream is still resolving ExoPlayer keeps playing the previous source, and
+    // writing that position under the new episode's id made every episode
+    // inherit the previous one's progress (the "下一集進度不會回頭" bug).
+    var playerEpisodeId by remember { mutableStateOf<String?>(null) }
+
+    // Episode id we already auto-retried once. Transient CDN/cookie failures
+    // are common, so a single silent retry is attempted before showing the
+    // error dialog; reset when the route episode changes or a stream goes
+    // READY again.
+    var autoRetriedEpisodeId by remember { mutableStateOf<String?>(null) }
+
+    // Episode object for the id the player is actually on. The ViewModel's
+    // currentEpisode may already point at the incoming episode, so it can't be
+    // trusted for this.
+    val episodeForPlayer: (String?) -> Episode? = { eid ->
+        if (eid == null) null
+        else uiState.episodes.find { it.id == eid } ?: uiState.currentEpisode?.takeIf { it.id == eid }
+    }
+
+    // Writes the given episode's position to history. Every call is keyed to the
+    // id the player holds, so episodes never overwrite each other's progress.
+    val persistProgress: (String?, Long, Long) -> Unit = { eid, positionMs, durationMs ->
+        val anime = uiState.currentAnime
+        val episode = episodeForPlayer(eid)
+        if (anime != null && episode != null && positionMs > 0L) {
+            HistoryManager.saveHistoryItem(
+                context = context,
+                animeId = anime.id,
+                animeTitle = anime.title,
+                coverUrl = anime.coverUrl,
+                episodeId = episode.id,
+                episodeTitle = episode.title,
+                playbackPositionMs = positionMs,
+                durationMs = durationMs,
+                episodeNumber = episode.episodeNumber
+            )
+        }
+    }
+
     // Applies one fast-forward/rewind step (from a held D-pad press, a media
     // key or a ±10s button) and refreshes the on-screen readout. Steps compound
     // from the anchor taken at the start of a burst, because ExoPlayer's
@@ -202,6 +246,7 @@ fun PlayerScreen(
         remoteSeek.reset()
         scrubSeek.reset()
         seekHud = null
+        autoRetriedEpisodeId = null
         viewModel.loadEpisode(episodeId)
     }
 
@@ -211,6 +256,19 @@ fun PlayerScreen(
         if (!streamUrl.isNullOrEmpty()) {
             logD("Anime1Video", "PlayerScreen loading stream URL: $streamUrl")
 
+            // Use the ViewModel's current episode id (not the route parameter):
+            // the user can switch episodes from the in-player picker without the
+            // route changing, and resume must follow the episode actually playing.
+            val activeEpisodeId = uiState.episodeId ?: episodeId
+
+            // The outgoing episode is still playing while the new stream
+            // resolves: store its position under its own id before the media
+            // source is replaced, so going back resumes exactly where it was.
+            val outgoingId = playerEpisodeId
+            if (outgoingId != null && outgoingId != activeEpisodeId) {
+                persistProgress(outgoingId, exoPlayer.currentPosition, exoPlayer.duration)
+            }
+
             val userAgent = headers["User-Agent"]
                 ?: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
 
@@ -219,7 +277,9 @@ fun PlayerScreen(
                 .setAllowCrossProtocolRedirects(true)
 
             val requestProperties = mutableMapOf<String, String>()
-            requestProperties["Referer"] = "https://v.anime1.me/"
+            // Same origin the reference client (oneAnime) advertises: the CDN
+            // rejects segment requests that arrive with a foreign referer.
+            requestProperties["Referer"] = "https://anime1.me/"
             val cookieStr = headers["Cookie"]
             if (!cookieStr.isNullOrEmpty()) {
                 requestProperties["Cookie"] = cookieStr
@@ -249,29 +309,45 @@ fun PlayerScreen(
             exoPlayer.setPlaybackSpeed(uiState.playbackSpeed)
             exoPlayer.prepare()
 
+            // Resume only from inside the episode body: a position at (or within
+            // 10s of) the end means the episode was finished, and restarting at
+            // the very end would look like "the progress never goes back".
             val history = HistoryManager.getHistoryList(context)
-            // Use the ViewModel's current episode id (not the route parameter):
-            // the user can switch episodes from the in-player picker without the
-            // route changing, and resume must follow the episode actually playing.
-            val activeEpisodeId = uiState.episodeId ?: episodeId
             val savedHistory = history.find { it.episodeId == activeEpisodeId }
-            if (savedHistory != null && savedHistory.playbackPositionMs > 5000L) {
-                exoPlayer.seekTo(savedHistory.playbackPositionMs)
+            val resumeMs = savedHistory?.let { item ->
+                val nearEnd = item.durationMs > 0L &&
+                    item.playbackPositionMs >= item.durationMs - 10_000L
+                if (item.playbackPositionMs > 5000L && !nearEnd) item.playbackPositionMs else null
             }
+            if (resumeMs != null) {
+                exoPlayer.seekTo(resumeMs)
+            }
+
+            playerEpisodeId = activeEpisodeId
+            // Re-baseline the read-out right away so the timeline shows THIS
+            // episode's position instead of carrying the previous one over.
+            viewModel.updatePlaybackPosition(resumeMs ?: 0L, exoPlayer.duration.coerceAtLeast(0L))
 
             exoPlayer.playWhenReady = true
             exoPlayer.play()
         }
     }
 
-    LaunchedEffect(exoPlayer, uiState.currentAnime, uiState.currentEpisode) {
+    LaunchedEffect(exoPlayer, uiState.currentAnime, uiState.currentEpisode, uiState.episodeId) {
         // History disk-writes are throttled: saveHistoryItem re-parses and
         // re-serializes the whole history list, so doing it every second
         // caused periodic jank during playback. 5s granularity is plenty
         // for resume purposes (dispose still saves precisely).
         var lastHistorySaveMs = 0L
         while (isActive) {
-            if (exoPlayer.isPlaying) {
+            // Only report for the episode the player is really holding: while a
+            // new stream is resolving, exoPlayer is still on the previous one.
+            val activeId = playerEpisodeId
+            val episode = episodeForPlayer(activeId)
+            val anime = uiState.currentAnime
+            if (exoPlayer.isPlaying && activeId != null && activeId == uiState.episodeId &&
+                episode != null && anime != null
+            ) {
                 val currentPos = exoPlayer.currentPosition.coerceAtLeast(0L)
                 val duration = exoPlayer.duration.coerceAtLeast(0L)
                 viewModel.updatePlaybackPosition(
@@ -280,23 +356,10 @@ fun PlayerScreen(
                 )
                 viewModel.setPlaying(true)
 
-                val anime = uiState.currentAnime
-                val episode = uiState.currentEpisode
                 val now = System.currentTimeMillis()
-                if (anime != null && episode != null && currentPos > 0L &&
-                    now - lastHistorySaveMs >= 5000L
-                ) {
+                if (currentPos > 0L && now - lastHistorySaveMs >= 5000L) {
                     lastHistorySaveMs = now
-                    HistoryManager.saveHistoryItem(
-                        context = context,
-                        animeId = anime.id,
-                        animeTitle = anime.title,
-                        coverUrl = anime.coverUrl,
-                        episodeId = episode.id,
-                        episodeTitle = episode.title,
-                        playbackPositionMs = currentPos,
-                        durationMs = duration
-                    )
+                    persistProgress(activeId, currentPos, duration)
                 }
             } else {
                 viewModel.setPlaying(exoPlayer.isPlaying)
@@ -327,15 +390,49 @@ fun PlayerScreen(
     // instead of the stale first-composition values (which are always null).
     val currentAnime by rememberUpdatedState(uiState.currentAnime)
     val currentEpisode by rememberUpdatedState(uiState.currentEpisode)
+    val playerEpisodes by rememberUpdatedState(uiState.episodes)
+    val playerEpisodeIdState by rememberUpdatedState(playerEpisodeId)
+
+    // Leaving the app (HOME on the remote, another app taking over) must stop
+    // playback: previously the episode kept playing audio in the background.
+    // ON_PAUSE covers the HOME button; ON_STOP is a safety net for devices that
+    // only report the stopped state.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, exoPlayer) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_PAUSE || event == Lifecycle.Event.ON_STOP) {
+                if (exoPlayer.isPlaying) {
+                    exoPlayer.pause()
+                }
+                viewModel.setPlaying(false)
+                persistProgress(playerEpisodeId, exoPlayer.currentPosition, exoPlayer.duration)
+                viewModel.setControlsVisible(true)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     DisposableEffect(exoPlayer) {
         val playerListener = object : Player.Listener {
             override fun onPlayerError(error: PlaybackException) {
                 logD("Anime1Video", "ExoPlayer error: ${error.message}")
-                viewModel.setPlaybackError("影片播放失敗，請重試")
+                val activeId = playerEpisodeId
+                if (activeId != null && autoRetriedEpisodeId != activeId) {
+                    // Single silent retry with a freshly fetched stream: most
+                    // failures here are expired cookies or a flaky CDN edge.
+                    autoRetriedEpisodeId = activeId
+                    viewModel.retryEpisode()
+                } else {
+                    viewModel.setPlaybackError("影片播放失敗，請重試")
+                }
             }
 
             override fun onPlaybackStateChanged(playbackState: Int) {
+                if (playbackState == Player.STATE_READY) {
+                    // The new stream actually works; allow one future auto-retry.
+                    autoRetriedEpisodeId = null
+                }
                 if (playbackState == Player.STATE_ENDED) {
                     if (viewModel.hasNextEpisode()) {
                         viewModel.playNextEpisode()
@@ -348,8 +445,12 @@ fun PlayerScreen(
         exoPlayer.addListener(playerListener)
         onDispose {
             exoPlayer.removeListener(playerListener)
+            // Save against the episode the player was actually holding (the
+            // ViewModel's currentEpisode may already be the next one).
+            val eid = playerEpisodeIdState
             val anime = currentAnime
-            val episode = currentEpisode
+            val episode = playerEpisodes.find { it.id == eid }
+                ?: currentEpisode?.takeIf { it.id == eid }
             val pos = exoPlayer.currentPosition
             val dur = exoPlayer.duration
             if (anime != null && episode != null && pos > 0L) {
@@ -361,7 +462,8 @@ fun PlayerScreen(
                     episodeId = episode.id,
                     episodeTitle = episode.title,
                     playbackPositionMs = pos,
-                    durationMs = if (dur > 0L) dur else 0L
+                    durationMs = if (dur > 0L) dur else 0L,
+                    episodeNumber = episode.episodeNumber
                 )
             }
             exoPlayer.release()
