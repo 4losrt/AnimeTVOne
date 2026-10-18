@@ -636,9 +636,14 @@ class AnimeRepositoryImpl(
 
         val list = _animeListState.value
         if (list.any { it.id == animeId }) {
-            val updatedList = list.map { if (it.id == animeId) updated else it }
-            _animeListState.value = updatedList
-            AnimeListDiskCache.saveToDisk(updatedList)
+            _animeListState.value = list.map { if (it.id == animeId) updated else it }
+            // Saving serializes the whole catalogue (~2 MB). getEpisodes is
+            // collected on the main thread, and every other cache write in this
+            // class is dispatched to ioDispatcher, so do the same here instead
+            // of blocking the UI while the detail screen is opening.
+            repositoryScope.launch {
+                AnimeListDiskCache.saveToDisk(_animeListState.value)
+            }
         }
     }
 

@@ -115,6 +115,13 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import java.util.Locale
 
+/**
+ * How many times a failing stream is silently re-fetched (per episode) before
+ * the error dialog is shown. Bounded so a stream that can never decode does not
+ * retry forever.
+ */
+private const val MAX_AUTO_RETRIES = 2
+
 @OptIn(UnstableApi::class)
 @Composable
 fun PlayerScreen(
@@ -174,11 +181,12 @@ fun PlayerScreen(
     // inherit the previous one's progress (the "下一集進度不會回頭" bug).
     var playerEpisodeId by remember { mutableStateOf<String?>(null) }
 
-    // Episode id we already auto-retried once. Transient CDN/cookie failures
-    // are common, so a single silent retry is attempted before showing the
-    // error dialog; reset when the route episode changes or a stream goes
-    // READY again.
-    var autoRetriedEpisodeId by remember { mutableStateOf<String?>(null) }
+    // Episode the player is on and how many silent retries it already consumed.
+    // Transient CDN/cookie failures are common, so a failing stream is re-fetched
+    // silently; the cap keeps a stream that can never decode from retrying
+    // forever without ever surfacing the error. Reset when the episode changes.
+    var autoRetryEpisodeId by remember { mutableStateOf<String?>(null) }
+    var autoRetryCount by remember { mutableStateOf(0) }
 
     // Episode object for the id the player is actually on. The ViewModel's
     // currentEpisode may already point at the incoming episode, so it can't be
@@ -246,7 +254,8 @@ fun PlayerScreen(
         remoteSeek.reset()
         scrubSeek.reset()
         seekHud = null
-        autoRetriedEpisodeId = null
+        autoRetryEpisodeId = null
+        autoRetryCount = 0
         viewModel.loadEpisode(episodeId)
     }
 
@@ -312,8 +321,21 @@ fun PlayerScreen(
             // Resume only from inside the episode body: a position at (or within
             // 10s of) the end means the episode was finished, and restarting at
             // the very end would look like "the progress never goes back".
+            //
+            // Matching falls back to the episode number: one episode can be
+            // addressed by two id shapes (with or without the stream token,
+            // depending on whether the token scrape succeeded), and the saved
+            // record may carry the other shape.
             val history = HistoryManager.getHistoryList(context)
+            val activeNumber = episodeForPlayer(activeEpisodeId)?.episodeNumber?.takeIf { it > 0 }
+                ?: HistoryManager.episodeNumberFromId(activeEpisodeId)
+            val activeAnimeId = activeEpisodeId.split("_ep_").firstOrNull().orEmpty()
             val savedHistory = history.find { it.episodeId == activeEpisodeId }
+                ?: history.firstOrNull { item ->
+                    activeNumber > 0 && item.animeId == activeAnimeId &&
+                        (item.episodeNumber.takeIf { it > 0 }
+                            ?: HistoryManager.episodeNumberFromId(item.episodeId)) == activeNumber
+                }
             val resumeMs = savedHistory?.let { item ->
                 val nearEnd = item.durationMs > 0L &&
                     item.playbackPositionMs >= item.durationMs - 10_000L
@@ -418,10 +440,13 @@ fun PlayerScreen(
             override fun onPlayerError(error: PlaybackException) {
                 logD("Anime1Video", "ExoPlayer error: ${error.message}")
                 val activeId = playerEpisodeId
-                if (activeId != null && autoRetriedEpisodeId != activeId) {
-                    // Single silent retry with a freshly fetched stream: most
-                    // failures here are expired cookies or a flaky CDN edge.
-                    autoRetriedEpisodeId = activeId
+                val tried = if (activeId != null && activeId == autoRetryEpisodeId) autoRetryCount else 0
+                if (activeId != null && tried < MAX_AUTO_RETRIES) {
+                    // Silent retry with a freshly fetched stream: most failures
+                    // here are expired cookies or a flaky CDN edge. Capped per
+                    // episode so an undecodable stream still reports an error.
+                    autoRetryEpisodeId = activeId
+                    autoRetryCount = tried + 1
                     viewModel.retryEpisode()
                 } else {
                     viewModel.setPlaybackError("影片播放失敗，請重試")
@@ -429,10 +454,6 @@ fun PlayerScreen(
             }
 
             override fun onPlaybackStateChanged(playbackState: Int) {
-                if (playbackState == Player.STATE_READY) {
-                    // The new stream actually works; allow one future auto-retry.
-                    autoRetriedEpisodeId = null
-                }
                 if (playbackState == Player.STATE_ENDED) {
                     if (viewModel.hasNextEpisode()) {
                         viewModel.playNextEpisode()
